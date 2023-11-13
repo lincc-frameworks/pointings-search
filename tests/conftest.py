@@ -1,4 +1,5 @@
 from os import path
+
 import pytest
 
 TEST_DIR = path.dirname(__file__)
