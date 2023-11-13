@@ -2,12 +2,12 @@
 
 import sqlite3
 
-from astropy.coordinates import get_body, get_sun
-from astropy import io
-from astropy.table import Table
-from astropy.time import Time
 import numpy as np
 import pandas as pd
+from astropy import io
+from astropy.coordinates import get_body, get_sun
+from astropy.table import Table
+from astropy.time import Time
 
 from pointings_search.geometry import ang2unitvec, angular_distance
 
