@@ -1,0 +1,18 @@
+# Changes here will be overwritten by Copier
+_commit: v1.4.4
+_src_path: gh:lincc-frameworks/python-project-template
+author_email: jkubica@andrew.cmu.edu
+author_name: LINCC Frameworks
+create_example_module: false
+custom_install: true
+include_benchmarks: false
+include_docs: true
+include_notebooks: true
+mypy_type_checking: none
+package_name: pointings_search
+preferred_linter: black
+project_license: BSD
+project_name: pointings_search
+project_organization: LINCC Frameworks
+use_gitlfs: none
+use_isort: true
