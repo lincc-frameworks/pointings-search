@@ -52,7 +52,7 @@ def unitvec2ang(x, y, z):
 
 def angular_distance(pts1, pts2):
     """Compute the pairwise angular offset of D-dimensional
-    points with a common scale and origin.
+    normal vectors (with a common origin).
 
     Parameters
     ----------
