@@ -15,7 +15,10 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
+    "astropy",
     "ipykernel", # Support for Jupyter notebooks
+    "numpy",
+    "pandas",
 ]
 
 # On a mac, install optional dependencies with `pip install '.[dev]'` (include the single quotes)
