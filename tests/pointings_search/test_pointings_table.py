@@ -1,9 +1,10 @@
-from astropy.time import Time
-import astropy.units as u
+import tempfile
 from os import path
+
+import astropy.units as u
 import numpy as np
 import pytest
-import tempfile
+from astropy.time import Time
 
 from pointings_search.pointing_table import PointingTable
 
