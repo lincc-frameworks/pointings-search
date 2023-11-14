@@ -4,7 +4,14 @@ from os import path
 import astropy.units as u
 import numpy as np
 import pytest
-from astropy.coordinates import SkyCoord, get_body, get_sun
+from astropy.coordinates import (
+    CartesianRepresentation,
+    get_body,
+    get_body_barycentric,
+    get_sun,
+    SkyCoord,
+    SphericalRepresentation,
+)
 from astropy.time import Time
 
 from pointings_search.pointing_table import PointingTable
@@ -170,6 +177,25 @@ def test_angular_dist_3d_heliocentric():
     ang_dist = data2.angular_dist_3d_heliocentric(mars_helio)
     assert np.allclose(ang_dist.value, [0.0], atol=0.2)
 
+    # Position the fake object relative (+1.0, -0.2, +0.5) relative to the Earth.
+    earth_pos = get_body_barycentric("earth", Time(60153.2, format="mjd"))
+    other_pos = [
+        earth_pos.x.value + 1.0,
+        earth_pos.y.value - 0.2,
+        earth_pos.z.value + 0.5,
+    ]
+    pointing_dir = CartesianRepresentation(x=1.0, y=-0.2, z=0.5)
+    pointing_ang = SkyCoord(SphericalRepresentation.from_cartesian(pointing_dir))
+    data_dict3 = {
+        "obsid": [1],
+        "ra": [pointing_ang.ra.deg],
+        "dec": [pointing_ang.dec.deg],
+        "obstime": [60153.2],
+    }
+    data3 = PointingTable.from_dict(data_dict3)
+    ang_dist = data3.angular_dist_3d_heliocentric(other_pos)
+    assert np.allclose(ang_dist.value, [0.0], atol=0.01)
+
 
 def test_search_heliocentric_pointing():
     # The first observation is effectively looking at the sun.
@@ -192,3 +218,14 @@ def test_search_heliocentric_pointing():
     match_table = data.search_heliocentric_pointing(other_pos, 0.9)
     assert len(match_table) == 1
     assert np.allclose(match_table["obsid"], [6])
+
+    # At 10,000 AU from the sun, the heliocentric point should approximately match the geocentric one
+    other_pos = SkyCoord(ra=219.63063 * u.deg, dec=-15.7 * u.deg, distance=10000.0 * u.au)
+    match_table = data.search_heliocentric_pointing(other_pos, 0.01)
+    assert len(match_table) == 1
+    assert np.allclose(match_table["obsid"], [3])
+
+    other_pos = SkyCoord(ra=25.51 * u.deg, dec=15.45532 * u.deg, distance=10000.0 * u.au)
+    match_table = data.search_heliocentric_pointing(other_pos, 0.01)
+    assert len(match_table) == 1
+    assert np.allclose(match_table["obsid"], [5])
