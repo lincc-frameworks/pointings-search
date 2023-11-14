@@ -4,7 +4,7 @@ from os import path
 import astropy.units as u
 import numpy as np
 import pytest
-from astropy.coordinates import get_sun, get_body, SkyCoord
+from astropy.coordinates import SkyCoord, get_body, get_sun
 from astropy.time import Time
 
 from pointings_search.pointing_table import PointingTable

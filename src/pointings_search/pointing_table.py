@@ -8,9 +8,9 @@ from astropy import io
 from astropy import units as u
 from astropy.coordinates import (
     CartesianRepresentation,
-    get_body_barycentric,
     SkyCoord,
     SphericalRepresentation,
+    get_body_barycentric,
 )
 from astropy.table import Table
 from astropy.time import Time
