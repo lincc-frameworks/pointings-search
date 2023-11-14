@@ -6,11 +6,11 @@ import numpy as np
 import pytest
 from astropy.coordinates import (
     CartesianRepresentation,
+    SkyCoord,
+    SphericalRepresentation,
     get_body,
     get_body_barycentric,
     get_sun,
-    SkyCoord,
-    SphericalRepresentation,
 )
 from astropy.time import Time
 
