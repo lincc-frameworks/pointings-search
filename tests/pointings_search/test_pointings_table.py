@@ -4,17 +4,18 @@ from os import path
 import astropy.units as u
 import numpy as np
 import pytest
+from astropy.coordinates import get_sun, get_body, SkyCoord
 from astropy.time import Time
 
 from pointings_search.pointing_table import PointingTable
 
 
 def test_check_and_rename_column():
-    d = {
+    data_dict = {
         "ra": [0.0, 90.0, 45.0, 90.0, 270.0],
         "DEC": [0.0, 90.0, 0.0, 45.0, 0.0],
     }
-    data = PointingTable.from_dict(d)
+    data = PointingTable.from_dict(data_dict)
 
     # The column is there.
     assert data._check_and_rename_column("ra", [], True)
@@ -32,13 +33,13 @@ def test_check_and_rename_column():
 
 
 def test_validate_and_standardize():
-    d = {
+    data_dict = {
         "ra": [0.0, 90.0, 45.0, 90.0, 270.0],
         "DEC": [0.0, 90.0, 0.0, 45.0, 0.0],
         "MJD": [0.0, 1.0, 2.0, 3.0, 4.0],
         "brightness": [10.0, 10.0, 10.0, 10.0, 10.0],
     }
-    data = PointingTable.from_dict(d)
+    data = PointingTable.from_dict(data_dict)
 
     assert len(data.pointings.columns) == 4
     assert "ra" in data.pointings.columns
@@ -69,13 +70,13 @@ def test_from_csv(test_data_dir):
 
 
 def test_to_csv():
-    d = {
+    data_dict = {
         "ra": [0.0, 90.0, 45.0, 90.0, 270.0],
         "DEC": [0.0, 90.0, 0.0, 45.0, 0.0],
         "MJD": [0.0, 1.0, 2.0, 3.0, 4.0],
         "flux": [10.0, 10.0, 10.0, 10.0, 10.0],
     }
-    data = PointingTable.from_dict(d)
+    data = PointingTable.from_dict(data_dict)
 
     with tempfile.TemporaryDirectory() as dir_name:
         filename = path.join(dir_name, "test.csv")
@@ -87,91 +88,107 @@ def test_to_csv():
         assert len(data.pointings.columns) == 4
 
 
-def test_append_sun_pos():
-    d = {
+def test_append_earth_pos():
+    data_dict = {
         "ra": [0.0, 90.0, 45.0, 90.0, 270.0],
         "dec": [0.0, 90.0, 0.0, 45.0, 0.0],
         "obstime": [60253.0 + i / 24.0 for i in range(5)],
     }
-    data = PointingTable.from_dict(d)
-    assert "sun_pos" not in data.pointings.columns
-    assert "sun_vec" not in data.pointings.columns
+    data = PointingTable.from_dict(data_dict)
+    assert "earth_pos" not in data.pointings.columns
+    assert "earth_vec" not in data.pointings.columns
 
     # Check that the data is corrected.
-    data.append_sun_pos()
-    assert "sun_pos" in data.pointings.columns
-    assert "sun_vec" in data.pointings.columns
-    assert len(data.pointings["sun_pos"]) == 5
-    assert len(data.pointings["sun_vec"]) == 5
+    data.append_earth_pos()
+    assert "earth_pos" in data.pointings.columns
+    assert "earth_vec" in data.pointings.columns
+    assert len(data.pointings["earth_pos"]) == 5
+    assert len(data.pointings["earth_vec"]) == 5
 
     # Check that the sun's distance is reasonable and consistent between the
     # angular and cartesian representations.
     for i in range(5):
-        assert data.pointings["sun_pos"][i].distance < 1.1 * u.AU
-        assert data.pointings["sun_pos"][i].distance > 0.9 * u.AU
-        vec_dist = np.linalg.norm(data.pointings["sun_vec"][i])
-        assert np.isclose(data.pointings["sun_pos"][i].distance.value, vec_dist)
+        assert data.pointings["earth_pos"][i].distance < 1.1 * u.AU
+        assert data.pointings["earth_pos"][i].distance > 0.9 * u.AU
+        vec_dist = np.linalg.norm(data.pointings["earth_vec"][i])
+        assert np.isclose(data.pointings["earth_pos"][i].distance.value, vec_dist)
 
 
-def test_append_unit_vector():
-    d = {
+def test_preprocess_pointing_info():
+    data_dict = {
         "ra": [0.0, 90.0, 45.0, 90.0, 270.0],
         "dec": [0.0, 90.0, 0.0, 45.0, 0.0],
+        "obstime": [60261.0, 60261.1, 60261.2, 60261.3, 60261.4],
     }
-    data = PointingTable.from_dict(d)
-    assert "unit_vec" not in data.pointings.columns
+    data = PointingTable.from_dict(data_dict)
+    assert "pointing" not in data.pointings.columns
 
-    data.append_unit_vector()
-    assert "unit_vec" in data.pointings.columns
-    assert np.allclose(data.pointings["unit_vec"][:, 0], [1.0, 0.0, 0.707106781, 0.0, 0.0])
-    assert np.allclose(data.pointings["unit_vec"][:, 1], [0.0, 0.0, 0.707106781, 0.707106781, -1.0])
-    assert np.allclose(data.pointings["unit_vec"][:, 2], [0.0, 1.0, 0.0, 0.707106781, 0.0])
+    data.preprocess_pointing_info()
+    assert "pointing" in data.pointings.columns
+
+    # Check that everything was correctlu copied to the SkyCoord.
+    assert np.allclose(data.pointings["pointing"].ra.deg, data_dict["ra"])
+    assert np.allclose(data.pointings["pointing"].dec.deg, data_dict["dec"])
+    assert np.allclose(data.pointings["pointing"].obstime.mjd, data_dict["obstime"])
 
 
 def test_angular_dist_3d_heliocentric():
-    # The first observation is effectively looking at the sun and the second is
-    # looking 1 degree away.
-    d = {
-        "ra": [219.63062629578198, 219.63062629578198],
-        "dec": [-15.455316915908792, -16.455316915908792],
-        "obstime": [60253.1, 60253.1],
+    # The first observation is effectively looking at the sun, the second is
+    # looking 1 degree away, and the third is spot on at a later time.
+    obstimes = [60253.1, 60253.1, 60263.7]
+    sun_pos = get_sun(Time(obstimes, format="mjd"))
+    data_dict = {
+        "ra": sun_pos.ra.deg,
+        "dec": sun_pos.dec.deg,
+        "obstime": obstimes,
     }
-    data = PointingTable.from_dict(d)
+    data_dict["dec"][1] += 1.0
+    data = PointingTable.from_dict(data_dict)
 
-    # Check the pointings compared to the position of the sun.
+    # Check the pointings compared to the position of the sun. Allow 0.5 degrees
+    # error because we are comparing the sun's position and the barycenter's position.
     ang_dist = data.angular_dist_3d_heliocentric([0.0, 0.0, 0.0])
-    assert np.allclose(ang_dist, [0.0, 1.0], atol=1e-5)
+    assert np.allclose(ang_dist.value, [0.0, 1.0, 0.0], atol=0.5)
 
     # Check an object that is 1 AU from the sun along the x-axis
+    # Answer computed manually from sunpos
     ang_dist = data.angular_dist_3d_heliocentric([1.0, 0.0, 0.0])
-    assert np.allclose(ang_dist, [69.587114, 69.283768], atol=1e-5)
+    assert np.allclose(ang_dist.value, [70.27581206, 70.5852368, 64.81695263], atol=0.5)
 
-    # Check an object in a known location in geocentric space [0.5, 0.5, 0.0] when looking
-    # out at RA=0.0 and dec=0.0
-    d2 = {"ra": [0.0], "dec": [0.0], "obstime": [60253.1]}
-    data2 = PointingTable.from_dict(d2)
-    ang_dist = data2.angular_dist_3d_heliocentric(
-        [1.2361460125166166, 1.1096560270277159, 0.2642697128572278]
-    )
-    assert np.allclose(ang_dist, 45.0, atol=1e-5)
+    # Check data for Mars
+    mars_pos_ang = get_body("mars", Time(60253.1, format="mjd")).transform_to("icrs")
+    data_dict2 = {
+        "obsid": [1],
+        "ra": [mars_pos_ang.ra.deg],
+        "dec": [mars_pos_ang.dec.deg],
+        "obstime": [60253.1],
+    }
+    data2 = PointingTable.from_dict(data_dict2)
+
+    # Use the true barycentric position as queried by JPL's Horizons as the offset.
+    mars_helio = [-0.945570054569104, -1.127108800070284, -0.4913967118719473]
+    ang_dist = data2.angular_dist_3d_heliocentric(mars_helio)
+    assert np.allclose(ang_dist.value, [0.0], atol=0.2)
 
 
-def test_angular_dist_3d_heliocentric():
+def test_search_heliocentric_pointing():
     # The first observation is effectively looking at the sun.
-    d = {
+    data_dict = {
         "obsid": [1, 2, 3, 4, 5, 6],
         "ra": [219.63063, 219.63063, 219.63063, 219.63063, 25.51, 356.24],
         "dec": [-15.45532, -16.45532, -15.7, -15.45532, 15.45532, -1.6305],
         "obstime": [60253.1, 60253.1, 60253.1, 60353.5, 60253.1, 60253.1],
     }
-    data = PointingTable.from_dict(d)
+    data = PointingTable.from_dict(data_dict)
 
     # Check the pointings compared to the position of the sun.
-    match_table = data.search_heliocentric_pointing(0.0, 0.0, 0.0, 0.9)
+    sun_pos = SkyCoord(ra=0.0 * u.deg, dec=0.0 * u.deg, distance=0.0 * u.au)
+    match_table = data.search_heliocentric_pointing(sun_pos, 0.9)
     assert len(match_table) == 2
     assert np.allclose(match_table["obsid"], [1, 3])
 
     # Check the pointings 10 AU out from the sun.
-    match_table = data.search_heliocentric_pointing(0.0, 0.0, 10.0, 0.9)
+    other_pos = SkyCoord(ra=0.0 * u.deg, dec=0.0 * u.deg, distance=10.0 * u.au)
+    match_table = data.search_heliocentric_pointing(other_pos, 0.9)
     assert len(match_table) == 1
     assert np.allclose(match_table["obsid"], [6])
