@@ -6,12 +6,12 @@
 
 import os
 import sys
-from importlib.metadata import version
 
 import autoapi
+from importlib.metadata import version
 
 # Define path to the code to be documented **relative to where conf.py (this file) is kept**
-sys.path.insert(0, os.path.abspath("../src/"))
+sys.path.insert(0, os.path.abspath('../src/'))
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
@@ -29,14 +29,13 @@ version = ".".join(release.split(".")[:2])
 extensions = ["sphinx.ext.mathjax", "sphinx.ext.napoleon", "sphinx.ext.viewcode"]
 
 extensions.append("autoapi.extension")
-extensions.append("nbsphinx")
 
 templates_path = []
-exclude_patterns = ["_build", "**.ipynb_checkpoints"]
+exclude_patterns = ['_build', '**.ipynb_checkpoints']
 
 master_doc = "index"  # This assumes that sphinx-build is called from the root directory
 html_show_sourcelink = False  # Remove 'view source code' from top of page (for html, not python)
-add_module_names = False  # Remove namespaces from class/method signatures
+add_module_names = False # Remove namespaces from class/method signatures
 
 autoapi_type = "python"
 autoapi_dirs = ["../src"]
