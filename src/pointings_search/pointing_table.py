@@ -10,7 +10,8 @@ from astropy import units as u
 from astropy.coordinates import CartesianRepresentation, SkyCoord, get_body_barycentric
 from astropy.table import Table
 from astropy.time import Time
-from astropy.wcs import WCS
+
+from .fits_utils import pointing_from_hdu
 
 
 class PointingTable:
@@ -150,17 +151,8 @@ class PointingTable:
 
                 for i in layers_to_check:
                     # Read the WCS and skip this layer if there is an error.
-                    try:
-                        wcs = WCS(hdu_list[i].header)
-                    except Exception:
-                        continue
-                    if wcs is None or wcs.pixel_shape is None or len(wcs.pixel_shape) < 2:
-                        continue
-
-                    # Try to get the RA, dec of the center of the image.
-                    mid_pt = [int(wcs.pixel_shape[0] / 2), int(wcs.pixel_shape[1] / 2)]
-                    sky_pos = wcs.pixel_to_world(mid_pt[0], mid_pt[1])
-                    if type(sky_pos) is list:
+                    coords = pointing_from_hdu(hdu_list[i])
+                    if coords is None:
                         continue
 
                     # Read the observation time.
@@ -172,8 +164,8 @@ class PointingTable:
                         continue
 
                     # Append the data.
-                    ras.append(sky_pos.ra.deg)
-                    decs.append(sky_pos.dec.deg)
+                    ras.append(coords[0])
+                    decs.append(coords[1])
                     obstimes.append(mjd)
                     filenames.append(str(fpath))
                     layers.append(i)
