@@ -1,6 +1,7 @@
 """A class for loading, storing and querying the pointings data."""
 
 import sqlite3
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -9,6 +10,7 @@ from astropy import units as u
 from astropy.coordinates import CartesianRepresentation, SkyCoord, get_body_barycentric
 from astropy.table import Table
 from astropy.time import Time
+from astropy.wcs import WCS
 
 
 class PointingTable:
@@ -92,6 +94,100 @@ class PointingTable:
         result = PointingTable(ap_table)
         result.validate_and_standardize()
         return result
+
+    @classmethod
+    def from_fits(self, base_dir, file_pattern, layer=-1, verbose=False):
+        """Create a PointingTable from multiple of FITS files.
+        Requires each FITS file to have a valid timestamp(s) and a valid WCS
+        for each layer indicating an observation.
+
+        Parameters
+        ----------
+        base_dir : `str`
+            The base directory in which to search.
+        pattern : `str`
+            The pattern of the filenames to read. Can be a single filename.
+        layer : `int`
+            The layer in which to read the WCS and obstime. If no layer is given
+            it will try to read a WCS from all layers.
+        verbose : `bool`
+            Log verbose information for debugging or status.
+
+        Returns
+        -------
+        `bool`
+            A Boolean indicating whether the file was successfully read and added.
+        """
+        ras = []
+        decs = []
+        obstimes = []
+        filenames = []
+        layers = []
+
+        all_files = Path(base_dir).glob(file_pattern)
+        for fpath in all_files:
+            # Skip directories or other non-files
+            if not fpath.is_file():
+                if verbose:
+                    print(f"Skipping non-file: {str(fpath)}")
+                continue
+
+            with io.fits.open(fpath) as hdu_list:
+                if verbose:
+                    print(f"Reading {str(fpath)}")
+
+                # Check for a common (layer 0) obstime for all images.
+                base_mjd = -1
+                if "MJD" in hdu_list[0].header:
+                    base_mjd = hdu_list[0].header["MJD"]
+
+                # If we only want a single layer otherwise iterate through
+                # all of the layers
+                if layer != -1:
+                    layers_to_check = [layer]
+                else:
+                    layers_to_check = [i for i in range(len(hdu_list))]
+
+                for i in layers_to_check:
+                    # Read the WCS and skip this layer if there is an error.
+                    try:
+                        wcs = WCS(hdu_list[i].header)
+                    except Exception:
+                        continue
+                    if wcs is None or wcs.pixel_shape is None or len(wcs.pixel_shape) < 2:
+                        continue
+
+                    # Try to get the RA, dec of the center of the image.
+                    mid_pt = [int(wcs.pixel_shape[0] / 2), int(wcs.pixel_shape[1] / 2)]
+                    sky_pos = wcs.pixel_to_world(mid_pt[0], mid_pt[1])
+                    if type(sky_pos) is list:
+                        continue
+
+                    # Read the observation time.
+                    if "MJD" in hdu_list[i].header:
+                        mjd = hdu_list[i].header["MJD"]
+                    elif base_mjd > 0.0:
+                        mjd = base_mjd
+                    else:
+                        continue
+
+                    # Append the data.
+                    ras.append(sky_pos.ra.deg)
+                    decs.append(sky_pos.dec.deg)
+                    obstimes.append(mjd)
+                    filenames.append(str(fpath))
+                    layers.append(i)
+
+        # Use the raw data to create the pointing table.
+        data_dict = {
+            "id": [i for i in range(len(ras))],
+            "ra": ras,
+            "dec": decs,
+            "obstime": obstimes,
+            "filename": filenames,
+            "layer": layers,
+        }
+        return PointingTable.from_dict(data_dict)
 
     def _check_and_rename_column(self, col_name, alt_names, required=True):
         """Check if the column is included using multiple possible names
