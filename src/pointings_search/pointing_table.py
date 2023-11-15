@@ -6,11 +6,7 @@ import numpy as np
 import pandas as pd
 from astropy import io
 from astropy import units as u
-from astropy.coordinates import (
-    CartesianRepresentation,
-    SkyCoord,
-    get_body_barycentric,
-)
+from astropy.coordinates import CartesianRepresentation, SkyCoord, get_body_barycentric
 from astropy.table import Table
 from astropy.time import Time
 
