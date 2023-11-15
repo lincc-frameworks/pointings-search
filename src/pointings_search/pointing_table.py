@@ -9,13 +9,10 @@ from astropy import units as u
 from astropy.coordinates import (
     CartesianRepresentation,
     SkyCoord,
-    SphericalRepresentation,
     get_body_barycentric,
 )
 from astropy.table import Table
 from astropy.time import Time
-
-from pointings_search.geometry import ang2unitvec, angular_distance
 
 
 class PointingTable:
@@ -61,11 +58,12 @@ class PointingTable:
             alt_names={"ra": ["RightAscension (deg)", "RA (deg)"]}
         """
         csv_table = io.ascii.read(filename, format="csv")
-        data = PointingTable(csv_table)
-        data.validate_and_standardize(alt_names)
-        return data
+        result = PointingTable(csv_table)
+        result.validate_and_standardize(alt_names)
+        return result
 
-    def from_sqllite(self, db_name, table_name, columns_map):
+    @classmethod
+    def from_sqllite(cls, db_name, table_name, columns_map):
         """Create the PointingTable from a sqllite database file.
 
         The columns map must have the following
@@ -95,9 +93,9 @@ class PointingTable:
 
         # Convert the data into an astropy Table (from the Panda's table).
         ap_table = Table.from_pandas(pandas_df)
-        data = PointingTable(ap_table)
-        data.validate_and_standardize()
-        return data
+        result = PointingTable(ap_table)
+        result.validate_and_standardize()
+        return result
 
     def _check_and_rename_column(self, col_name, alt_names, required=True):
         """Check if the column is included using multiple possible names
@@ -167,7 +165,7 @@ class PointingTable:
 
     def append_earth_pos(self, recompute=False):
         """Compute an approximate position of the Earth (relative to solar systems's
-        barycenter and append this the table. Caches the result within the table
+        barycenter) and append this the table. Caches the result within the table
         so that this computation only needs to be performed once.
 
         Parameters
@@ -175,25 +173,19 @@ class PointingTable:
         recompute : `bool`
             If the column already exists, recompute it and overwrite.
         """
-        if "earth_pos" in self.pointings.columns and not recompute:
+        if "earth_vec_x" in self.pointings.columns and not recompute:
             return
 
         # Compute and save the (RA, dec, dist) coordinates.
         # Astropy computes the pointing in the ICRS frame.
         times = Time(self.pointings["obstime"], format="mjd")
         earth_pos_cart = get_body_barycentric("earth", times)
-        earth_pos_spherical = SphericalRepresentation.from_cartesian(earth_pos_cart)
-        self.pointings["earth_pos"] = SkyCoord(earth_pos_cart, frame="icrs", obstime=times)
 
         # Compute and save the geocentric cartesian coordinates in AU as a float
         # no astropy units.
-        self.pointings["earth_vec"] = np.array(
-            [
-                earth_pos_cart.x.value,
-                earth_pos_cart.y.value,
-                earth_pos_cart.z.value,
-            ]
-        ).T
+        self.pointings["earth_vec_x"] = earth_pos_cart.x.value
+        self.pointings["earth_vec_y"] = earth_pos_cart.y.value
+        self.pointings["earth_vec_z"] = earth_pos_cart.z.value
 
     def preprocess_pointing_info(self, recompute=False):
         """Convert the raw RA, dec, and time columns into a astropy
@@ -205,16 +197,23 @@ class PointingTable:
         recompute : `bool`
             If the column already exists, recompute it and overwrite.
         """
-        if "pointing" in self.pointings.columns and not recompute:
+        if "unit_vec_x" in self.pointings.columns and not recompute:
             return
 
+        # Compute the pointing vector.
         times = Time(self.pointings["obstime"], format="mjd")
-        self.pointings["pointing"] = SkyCoord(
+        pointings_ang = SkyCoord(
             ra=self.pointings["ra"].data * u.deg,
             dec=self.pointings["dec"].data * u.deg,
             obstime=times,
             frame="icrs",
         )
+
+        # Save the unit vector of the pointings.
+        pointings_cart = pointings_ang.cartesian
+        self.pointings["unit_vec_x"] = pointings_cart.x.value
+        self.pointings["unit_vec_y"] = pointings_cart.y.value
+        self.pointings["unit_vec_z"] = pointings_cart.z.value
 
     def angular_dist_3d_heliocentric(self, cart_pt):
         """Compute the angular offset (in degrees) between the pointing and
@@ -237,24 +236,33 @@ class PointingTable:
         if len(cart_pt) != 3:
             raise ValueError(f"Expected 3 dimensions, found {len(cart_pt)}")
 
-        if "earth_pos" not in self.pointings.columns:
+        if "earth_vec_x" not in self.pointings.columns:
             self.append_earth_pos()
-        if "pointing" not in self.pointings.columns:
+        if "unit_vec_x" not in self.pointings.columns:
             self.preprocess_pointing_info()
 
         # Compute the geocentric cartesian position of the point in the ICRS frame.
         geo_pts = CartesianRepresentation(
-            (cart_pt[0] - self.pointings["earth_vec"][:, 0]) * u.au,
-            (cart_pt[1] - self.pointings["earth_vec"][:, 1]) * u.au,
-            (cart_pt[2] - self.pointings["earth_vec"][:, 2]) * u.au,
+            (cart_pt[0] - self.pointings["earth_vec_x"]),
+            (cart_pt[1] - self.pointings["earth_vec_y"]),
+            (cart_pt[2] - self.pointings["earth_vec_z"]),
         )
 
-        # Convert to geocentric spherical coordinates in the ICRS frame.
-        geo_pos = SkyCoord(SphericalRepresentation.from_cartesian(geo_pts), frame="icrs")
+        # Put the pointing data into a CartesianRepresentation so we can use astropy's functions.
+        pointing_pts = CartesianRepresentation(
+            self.pointings["unit_vec_x"],
+            self.pointings["unit_vec_y"],
+            self.pointings["unit_vec_z"],
+        )
 
-        # Compute the angular distance of the point with each pointing.
-        ang_dist = geo_pos.separation(self.pointings["pointing"])
-        return ang_dist
+        # Compute the angular distance from the dot product of the vectors. This can be slightly
+        # inaccurate very close to 0, but is sufficient for pruning. Since we are using the vectors,
+        # (instead of RA, dec) we do not need to worry about the poles.
+        norm = geo_pts.norm()
+        dot = geo_pts.dot(pointing_pts)
+        dist = np.arccos(dot / norm).to(u.deg)
+
+        return dist
 
     def search_heliocentric_pointing(self, point, fov=None):
         """Search for pointings that would overlap a given heliocentric

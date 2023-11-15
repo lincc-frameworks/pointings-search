@@ -77,10 +77,11 @@ def test_from_csv(test_data_dir):
 
 
 def test_to_csv():
+    """Confirm that we can save and reload the basic data."""
     data_dict = {
         "ra": [0.0, 90.0, 45.0, 90.0, 270.0],
-        "DEC": [0.0, 90.0, 0.0, 45.0, 0.0],
-        "MJD": [0.0, 1.0, 2.0, 3.0, 4.0],
+        "dec": [0.0, 90.0, 0.0, 45.0, 0.0],
+        "obstime": [0.0, 1.0, 2.0, 3.0, 4.0],
         "flux": [10.0, 10.0, 10.0, 10.0, 10.0],
     }
     data = PointingTable.from_dict(data_dict)
@@ -91,8 +92,45 @@ def test_to_csv():
 
         # Check that we can reload it.
         data2 = PointingTable.from_csv(filename)
-        assert len(data.pointings) == 5
-        assert len(data.pointings.columns) == 4
+        assert len(data2.pointings) == 5
+        assert len(data2.pointings.columns) == 4
+        assert np.allclose(data2.pointings["ra"], data_dict["ra"])
+        assert np.allclose(data2.pointings["dec"], data_dict["dec"])
+        assert np.allclose(data2.pointings["obstime"], data_dict["obstime"])
+        assert np.allclose(data2.pointings["flux"], data_dict["flux"])
+
+
+def test_to_csv_cached():
+    """Confirm that we can save and reload the cached data."""
+    data_dict = {
+        "ra": [0.0, 90.0, 45.0, 90.0, 270.0],
+        "dec": [0.0, 90.0, 0.0, 45.0, 0.0],
+        "obstime": [0.0, 1.0, 2.0, 3.0, 4.0],
+        "flux": [10.0, 10.0, 10.0, 10.0, 10.0],
+    }
+    data = PointingTable.from_dict(data_dict)
+    data.preprocess_pointing_info()
+    data.append_earth_pos()
+
+    with tempfile.TemporaryDirectory() as dir_name:
+        filename = path.join(dir_name, "test2.csv")
+        data.to_csv(filename)
+
+        # Check that we can reload it.
+        data2 = PointingTable.from_csv(filename)
+        assert len(data2.pointings) == 5
+        assert len(data2.pointings.columns) == 10
+        assert np.allclose(data2.pointings["ra"], data_dict["ra"])
+        assert np.allclose(data2.pointings["dec"], data_dict["dec"])
+        assert np.allclose(data2.pointings["obstime"], data_dict["obstime"])
+        assert np.allclose(data2.pointings["flux"], data_dict["flux"])
+
+        assert "unit_vec_x" in data2.pointings.columns
+        assert "unit_vec_y" in data2.pointings.columns
+        assert "unit_vec_z" in data2.pointings.columns
+        assert "earth_vec_x" in data2.pointings.columns
+        assert "earth_vec_y" in data2.pointings.columns
+        assert "earth_vec_z" in data2.pointings.columns
 
 
 def test_append_earth_pos():
@@ -102,23 +140,29 @@ def test_append_earth_pos():
         "obstime": [60253.0 + i / 24.0 for i in range(5)],
     }
     data = PointingTable.from_dict(data_dict)
-    assert "earth_pos" not in data.pointings.columns
-    assert "earth_vec" not in data.pointings.columns
+    assert "earth_vec_x" not in data.pointings.columns
+    assert "earth_vec_y" not in data.pointings.columns
+    assert "earth_vec_z" not in data.pointings.columns
 
-    # Check that the data is corrected.
+    # Check that the data is correct
     data.append_earth_pos()
-    assert "earth_pos" in data.pointings.columns
-    assert "earth_vec" in data.pointings.columns
-    assert len(data.pointings["earth_pos"]) == 5
-    assert len(data.pointings["earth_vec"]) == 5
+    assert "earth_vec_x" in data.pointings.columns
+    assert "earth_vec_y" in data.pointings.columns
+    assert "earth_vec_z" in data.pointings.columns
+    assert len(data.pointings["earth_vec_x"]) == 5
+    assert len(data.pointings["earth_vec_y"]) == 5
+    assert len(data.pointings["earth_vec_z"]) == 5
 
     # Check that the sun's distance is reasonable and consistent between the
     # angular and cartesian representations.
     for i in range(5):
-        assert data.pointings["earth_pos"][i].distance < 1.1 * u.AU
-        assert data.pointings["earth_pos"][i].distance > 0.9 * u.AU
-        vec_dist = np.linalg.norm(data.pointings["earth_vec"][i])
-        assert np.isclose(data.pointings["earth_pos"][i].distance.value, vec_dist)
+        x = data.pointings["earth_vec_x"][i]
+        y = data.pointings["earth_vec_y"][i]
+        z = data.pointings["earth_vec_z"][i]
+        dist = np.sqrt(x * x + y * y + z * z)
+
+        assert dist < 1.1
+        assert dist > 0.9
 
 
 def test_preprocess_pointing_info():
@@ -128,15 +172,17 @@ def test_preprocess_pointing_info():
         "obstime": [60261.0, 60261.1, 60261.2, 60261.3, 60261.4],
     }
     data = PointingTable.from_dict(data_dict)
-    assert "pointing" not in data.pointings.columns
+    assert "unit_vec_x" not in data.pointings.columns
+    assert "unit_vec_y" not in data.pointings.columns
+    assert "unit_vec_z" not in data.pointings.columns
 
     data.preprocess_pointing_info()
-    assert "pointing" in data.pointings.columns
-
-    # Check that everything was correctlu copied to the SkyCoord.
-    assert np.allclose(data.pointings["pointing"].ra.deg, data_dict["ra"])
-    assert np.allclose(data.pointings["pointing"].dec.deg, data_dict["dec"])
-    assert np.allclose(data.pointings["pointing"].obstime.mjd, data_dict["obstime"])
+    assert "unit_vec_x" in data.pointings.columns
+    assert "unit_vec_y" in data.pointings.columns
+    assert "unit_vec_z" in data.pointings.columns
+    assert np.allclose(data.pointings["unit_vec_x"], [1.0, 0.0, 0.707106781, 0.0, 0.0])
+    assert np.allclose(data.pointings["unit_vec_y"], [0.0, 0.0, 0.707106781, 0.707106781, -1.0])
+    assert np.allclose(data.pointings["unit_vec_z"], [0.0, 1.0, 0.0, 0.707106781, 0.0])
 
 
 def test_angular_dist_3d_heliocentric():
