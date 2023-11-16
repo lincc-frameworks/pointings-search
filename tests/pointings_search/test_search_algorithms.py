@@ -1,0 +1,33 @@
+import numpy as np
+
+from pointings_search.pointing_table import PointingTable
+from pointings_search.search_algorithms import grid_search
+
+def test_grid_search():
+    # Generate fake pointings as a sweep a patch of the southern
+    ras = []
+    decs = []
+    obstimes = []
+    obstime = 60253.1
+    for r in np.linspace(15.0, 275.0, 50):
+        for d in np.linspace(-85.0, 0.0, 50):
+            ras.append(r)
+            decs.append(d)
+            obstimes.append(obstime)
+            obstime += 0.01
+    
+    data_dict = {
+        "ra": ras,
+        "dec": decs,
+        "obstime": obstimes,
+        "fov": [1.0] * len(ras),
+        "id": [i for i in range(len(ras))],
+    }
+    data = PointingTable.from_dict(data_dict)
+    print(f"Generated {len(data.pointings)} pointings")
+
+    results = grid_search(data, num_steps=50)
+    for i in range(10):
+        print(f"{i}: {results[i][0]}")
+    assert False
+    

@@ -260,6 +260,43 @@ class PointingTable:
 
         return dist
 
+    def search_heliocentric_xyz(self, point, fov=None):
+        """Search for pointings that would overlap a given heliocentric
+        pointing and estimated distance. Allows a single field of view
+        or per pointing field of views.
+
+        Note
+        ----
+        Currently uses a linear algorithm that computes all distances. It
+        is likely we can accelerate this with better indexing.
+
+        Parameters
+        ----------
+        point : tuple, list, or array
+            The point represented as (x, y, z) on which to compute the distances.
+        fov : `float` (optional)
+            The field of view of the individual pointings. If None
+            tries to retrieve from table.
+
+        Returns
+        -------
+        An astropy table with information for the matching pointings.
+
+        Raises
+        ------
+        ValueError if no field of view is provided.
+        """
+        if fov is None and "fov" not in self.pointings.columns:
+            raise ValueError("No field of view provided.")
+
+        # Compare the angular distance of the query point to each pointing.
+        ang_dist = self.angular_dist_3d_heliocentric(point)
+        if fov is None:
+            inds = ang_dist.value < self.pointings["fov"]
+        else:
+            inds = ang_dist.value < fov
+        return self.pointings[inds]
+
     def search_heliocentric_pointing(self, point, fov=None):
         """Search for pointings that would overlap a given heliocentric
         pointing and estimated distance. Allows a single field of view
@@ -285,20 +322,9 @@ class PointingTable:
         ------
         ValueError if no field of view is provided.
         """
-        if fov is None and "fov" not in self.pointings.columns:
-            raise ValueError("No field of view provided.")
-
-        # Create the query point in 3-d heliocentric cartesian space.
         cart_pt = point.cartesian
         helio_pt = [cart_pt.x.value, cart_pt.y.value, cart_pt.z.value]
-
-        # Compare the angular distance of the query point to each pointing.
-        ang_dist = self.angular_dist_3d_heliocentric(helio_pt)
-        if fov is None:
-            inds = ang_dist.value < self.pointings["fov"]
-        else:
-            inds = ang_dist.value < fov
-        return self.pointings[inds]
+        return self.search_heliocentric_xyz(helio_pt, fov)
 
     def to_csv(self, filename, overwrite=False):
         """Write the pointings data to a CSV file.
