@@ -79,7 +79,6 @@ def test_from_csv(test_data_dir):
 def test_from_fits(test_data_dir):
     data = PointingTable.from_fits(test_data_dir, "*.fits")
     assert len(data.pointings) == 4
-    assert "id" in data.pointings.columns
     assert "ra" in data.pointings.columns
     assert "dec" in data.pointings.columns
     assert "obstime" in data.pointings.columns

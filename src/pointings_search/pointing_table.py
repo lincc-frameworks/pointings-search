@@ -11,7 +11,7 @@ from astropy.coordinates import CartesianRepresentation, SkyCoord, get_body_bary
 from astropy.table import Table
 from astropy.time import Time
 
-from .fits_utils import pointing_from_hdu
+from .fits_utils import pointing_dict_from_fits_files
 
 
 class PointingTable:
@@ -97,7 +97,7 @@ class PointingTable:
         return result
 
     @classmethod
-    def from_fits(self, base_dir, file_pattern, layer=-1, verbose=False):
+    def from_fits(self, base_dir, file_pattern, extension=-1):
         """Create a PointingTable from multiple of FITS files.
         Requires each FITS file to have a valid timestamp(s) and a valid WCS
         for each layer indicating an observation.
@@ -108,77 +108,11 @@ class PointingTable:
             The base directory in which to search.
         pattern : `str`
             The pattern of the filenames to read. Can be a single filename.
-        layer : `int`
+        extension : `int`
             The layer in which to read the WCS and obstime. If no layer is given
             it will try to read a WCS from all layers.
-        verbose : `bool`
-            Log verbose information for debugging or status.
-
-        Returns
-        -------
-        `bool`
-            A Boolean indicating whether the file was successfully read and added.
         """
-        ras = []
-        decs = []
-        obstimes = []
-        filenames = []
-        layers = []
-
-        all_files = Path(base_dir).glob(file_pattern)
-        for fpath in all_files:
-            # Skip directories or other non-files
-            if not fpath.is_file():
-                if verbose:
-                    print(f"Skipping non-file: {str(fpath)}")
-                continue
-
-            with io.fits.open(fpath) as hdu_list:
-                if verbose:
-                    print(f"Reading {str(fpath)}")
-
-                # Check for a common (layer 0) obstime for all images.
-                base_mjd = -1
-                if "MJD" in hdu_list[0].header:
-                    base_mjd = hdu_list[0].header["MJD"]
-
-                # If we only want a single layer otherwise iterate through
-                # all of the layers
-                if layer != -1:
-                    layers_to_check = [layer]
-                else:
-                    layers_to_check = [i for i in range(len(hdu_list))]
-
-                for i in layers_to_check:
-                    # Read the WCS and skip this layer if there is an error.
-                    coords = pointing_from_hdu(hdu_list[i])
-                    if coords is None:
-                        continue
-
-                    # Read the observation time.
-                    if "MJD" in hdu_list[i].header:
-                        mjd = hdu_list[i].header["MJD"]
-                    elif base_mjd > 0.0:
-                        mjd = base_mjd
-                    else:
-                        continue
-
-                    # Append the data.
-                    ras.append(coords[0])
-                    decs.append(coords[1])
-                    obstimes.append(mjd)
-                    filenames.append(str(fpath))
-                    layers.append(i)
-
-        # Use the raw data to create the pointing table.
-        data_dict = {
-            "id": [i for i in range(len(ras))],
-            "ra": ras,
-            "dec": decs,
-            "obstime": obstimes,
-            "filename": filenames,
-            "layer": layers,
-        }
+        data_dict = pointing_dict_from_fits_files(base_dir, file_pattern, extension)
         return PointingTable.from_dict(data_dict)
 
     def _check_and_rename_column(self, col_name, alt_names, required=True):

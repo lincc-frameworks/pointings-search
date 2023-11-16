@@ -1,8 +1,11 @@
+import tempfile
+from os import path
+
 import numpy as np
 import pytest
 from astropy.io import fits
 
-from pointings_search.fits_utils import pointing_from_hdu
+from pointings_search.fits_utils import obstime_from_hdu, pointing_dict_from_fits_files, pointing_from_hdu
 
 
 def make_test_hdu(num_row=10, num_col=15):
@@ -57,7 +60,7 @@ def test_pointing_from_hdu_empty_data():
     assert result is None
 
 
-def test_pointing_bad_wcs():
+def test_pointing_from_hdu_bad_wcs():
     test_hdu = make_test_hdu()
     del test_hdu.header["CTYPE1"]
     del test_hdu.header["CTYPE2"]
@@ -65,15 +68,79 @@ def test_pointing_bad_wcs():
     assert result is None
 
 
-def test_pointing_long_image():
+def test_pointing_from_hdu_long_image():
     """Test a case where the center of the height is outside the width"""
     test_hdu = make_test_hdu(200, 20)
     result = pointing_from_hdu(test_hdu)
     assert result is not None
 
 
-def test_pointing_wide_image():
+def test_pointing_from_hdu_wide_image():
     """Test a case where the center of the width is outside the height"""
     test_hdu = make_test_hdu(20, 200)
     result = pointing_from_hdu(test_hdu)
     assert result is not None
+
+
+def test_obstime_from_hdu():
+    hdu1 = fits.ImageHDU()
+    assert obstime_from_hdu(hdu1, -1.0) == -1.0
+
+    # Set DATE-AVE and check that we get the correct answer.
+    hdu1.header["DATE-AVE"] = 10.0
+    assert obstime_from_hdu(hdu1, -1.0) == 10.0
+
+    # Set MJD and check that it has preference.
+    hdu1.header["MJD"] = 100.0
+    assert obstime_from_hdu(hdu1, -1.0) == 100.0
+
+
+def test_read_fits_files():
+    with tempfile.TemporaryDirectory() as dir_name:
+        hdul = fits.HDUList()
+
+        # File test_00000.fits has no data.
+        pri = fits.PrimaryHDU()
+        pri.header["MJD"] = 10.0
+        hdul.append(pri)
+        hdul.writeto(path.join(dir_name, "test_00000.fits"))
+
+        # Test read all extensions.
+        data_dict = pointing_dict_from_fits_files(dir_name, "test_00001.fits")
+        assert len(data_dict["ra"]) == 0
+
+        # Files test_00001.fits and test_00002.fits each have one image.
+        hdu1 = make_test_hdu(50, 60)
+        hdu1.header["MJD"] = 100.0
+        hdul.append(hdu1)
+        hdul.writeto(path.join(dir_name, "test_00001.fits"))
+        hdul.writeto(path.join(dir_name, "test_00002.fits"))
+
+        # Test read all extensions, given extension, and invalid extension.
+        data_dict = pointing_dict_from_fits_files(dir_name, "test_00001.fits")
+        assert len(data_dict["ra"]) == 1
+        data_dict = pointing_dict_from_fits_files(dir_name, "test_00001.fits", extension=1)
+        assert len(data_dict["ra"]) == 1
+        data_dict = pointing_dict_from_fits_files(dir_name, "test_00001.fits", extension=2)
+        assert len(data_dict["ra"]) == 0
+
+        # File test_00003.fits has three images.
+        hdu2 = make_test_hdu(100, 120)
+        hdu2.header["MJD"] = 200.0
+        hdul.append(hdu2)
+
+        hdu3 = make_test_hdu(100, 120)
+        hdul.append(hdu2)
+        hdul.writeto(path.join(dir_name, "test_00003.fits"))
+
+        # Test read all extensions and given extension.
+        data_dict = pointing_dict_from_fits_files(dir_name, "test_00003.fits")
+        assert len(data_dict["ra"]) == 3
+        data_dict = pointing_dict_from_fits_files(dir_name, "test_00003.fits", extension=1)
+        assert len(data_dict["ra"]) == 1
+
+        # Test read all files.
+        data_dict = pointing_dict_from_fits_files(dir_name, "test_0000*.fits")
+        assert len(data_dict["ra"]) == 5
+        data_dict = pointing_dict_from_fits_files(dir_name, "test_0000*.fits", extension=1)
+        assert len(data_dict["ra"]) == 3
