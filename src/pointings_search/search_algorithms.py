@@ -1,18 +1,20 @@
 """Functions for performing searches over a PointingTable for good candidates."""
 
 import heapq
-import numpy as np
 
+import numpy as np
 from astropy.coordinates import CartesianRepresentation, SkyCoord, get_body_barycentric
+
 from pointings_search.pointing_table import PointingTable
+
 
 def grid_search(
     data,
-    min_dist = 5.0,
-    max_dist = 50.0,
-    num_steps = 10,
-    min_images = 5,
-    max_results = 100,
+    min_dist=5.0,
+    max_dist=50.0,
+    num_steps=10,
+    min_images=5,
+    max_results=100,
 ):
     """Perform a brute force grid search over barycentric space. Takes in a minimum
     and maximum distance to prune points outside sphere defined by maximum distance
@@ -36,25 +38,28 @@ def grid_search(
         The minimum number of images to consider this a hit. (default=5)
     max_results : `int`
         The maximum number of results to return. (Default = 100)
+
+    Returns
+    -------
+    results : `list`
+        A sorted list that stores a tuple (num_images, (x, y, z))
+        for each match.
     """
     results = []
 
     for x in np.linspace(-max_dist, max_dist, num_steps):
-        print(f"x = {x}")
         for y in np.linspace(-max_dist, max_dist, num_steps):
             for z in np.linspace(-max_dist, max_dist, num_steps):
                 # Prune based on distance.
-                dist = np.sqrt(x*x + y*y + z*z)
+                dist = np.sqrt(x * x + y * y + z * z)
                 if dist < min_dist or dist > max_dist:
                     continue
 
                 xyz_res = data.search_heliocentric_xyz([x, y, z])
                 if len(xyz_res) >= min_images:
-                    print(f"{x}, {y}, {z} -> {len(xyz_res)}")
-                    heapq.heappush(results, len(xyz_res))
+                    heapq.heappush(results, (len(xyz_res), (x, y, z)))
                     if len(results) > max_results:
                         heapq.heappop(results)
 
+    results.sort(reverse=True)
     return results
-                               
-        
