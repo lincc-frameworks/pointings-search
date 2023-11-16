@@ -42,6 +42,7 @@ def test_pointing_from_hdu():
     assert result is not None
     assert np.isclose(result[0], 200.46478614563296)
     assert np.isclose(result[1], -7.713457029036169)
+    assert result[2] > 0.0
 
 
 def test_pointing_from_hdu_no_data():

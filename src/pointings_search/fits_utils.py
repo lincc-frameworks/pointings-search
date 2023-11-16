@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import numpy as np
 from astropy import io
 from astropy.wcs import WCS
 
@@ -19,7 +20,7 @@ def pointing_from_hdu(hdu):
     Returns
     -------
     tuple or None
-        Returns a tuple of (RA, dec) in degrees or None if the
+        Returns a tuple of (RA, dec, fov) in degrees or None if the
         HDU does not represent a valid pointing.
     """
     # Skip cases where there is no image data at all.
@@ -37,19 +38,29 @@ def pointing_from_hdu(hdu):
     # Confirm we have at least 2 pixel dimensions.
     if wcs.pixel_shape is None or len(wcs.pixel_shape) < 2:
         return None
-    if wcs.pixel_shape[0] < 1 or wcs.pixel_shape[1] < 1:
+
+    num_r = wcs.pixel_shape[0]
+    num_c = wcs.pixel_shape[1]
+    if num_r < 1 or num_c < 1:
         return None
 
     # Try to get the RA, dec of the center of the image.
-    mid_r = int(wcs.pixel_shape[0] / 2)
-    mid_c = int(wcs.pixel_shape[1] / 2)
-    sky_pos = wcs.pixel_to_world(mid_r, mid_c)
+    sky_pos = wcs.pixel_to_world(int(num_r / 2), int(num_c / 2))
 
     # Check that we produced a valid SkyCoord result.
     if type(sky_pos) is list:
         return None
 
-    return (sky_pos.ra.deg, sky_pos.dec.deg)
+    # Compute an estimated FOV from the corners.
+    max_dist = np.max(
+        [
+            sky_pos.separation(wcs.pixel_to_world(0, 0)).degree,
+            sky_pos.separation(wcs.pixel_to_world(num_r, 0)).degree,
+            sky_pos.separation(wcs.pixel_to_world(0, num_c)).degree,
+            sky_pos.separation(wcs.pixel_to_world(num_r, num_c)).degree,
+        ]
+    )
+    return (sky_pos.ra.deg, sky_pos.dec.deg, max_dist)
 
 
 def obstime_from_hdu(hdu, default=-1.0):
