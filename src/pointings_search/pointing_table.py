@@ -93,6 +93,10 @@ class PointingTable:
         result.validate_and_standardize()
         return result
 
+    def __len__(self):
+        """Return the length of the pointing table."""
+        return len(self.pointings)
+
     def _check_and_rename_column(self, col_name, alt_names, required=True):
         """Check if the column is included using multiple possible names
         and renaming to a single canonical name.
@@ -140,6 +144,10 @@ class PointingTable:
             `RightAscension (deg)` or `RA (deg)` we would pass
             alt_names={"ra": ["RightAscension (deg)", "RA (deg)"]}
 
+        Returns
+        -------
+        self reference for chaining.
+
         Raises
         ------
         KeyError is the column is required and not present.
@@ -158,6 +166,29 @@ class PointingTable:
         )
         for key in alt_names.keys():
             self._check_and_rename_column(key, alt_names[key], required=False)
+        return self
+
+    def filter_on_time(self, min_obstime=None, max_obstime=None):
+        """Filter the table to only include rows within the time bounds.
+
+        Parameters
+        ----------
+        min_obstime : `float`, optional
+            The minimum observation time. If no time is given then no
+            lower bound filtering is done.
+        max_obstime : `float`, optional
+            The maximum observation time. If no time is given then no
+            upper bound filtering is done.
+
+        Returns
+        -------
+        self reference for chaining.
+        """
+        if min_obstime is not None:
+            self.pointings = self.pointings[self.pointings["obstime"] >= min_obstime]
+        if max_obstime is not None:
+            self.pointings = self.pointings[self.pointings["obstime"] <= max_obstime]
+        return self
 
     def append_earth_pos(self, recompute=False):
         """Compute an approximate position of the Earth (relative to solar systems's
@@ -168,6 +199,10 @@ class PointingTable:
         ----------
         recompute : `bool`
             If the column already exists, recompute it and overwrite.
+
+        Returns
+        -------
+        self reference for chaining.
         """
         if "earth_vec_x" in self.pointings.columns and not recompute:
             return
@@ -183,6 +218,8 @@ class PointingTable:
         self.pointings["earth_vec_y"] = earth_pos_cart.y.value
         self.pointings["earth_vec_z"] = earth_pos_cart.z.value
 
+        return self
+
     def preprocess_pointing_info(self, recompute=False):
         """Convert the raw RA, dec, and time columns into a astropy
         SkyCoord. Caches the result within the table
@@ -192,6 +229,10 @@ class PointingTable:
         ----------
         recompute : `bool`
             If the column already exists, recompute it and overwrite.
+
+        Returns
+        -------
+        self reference for chaining.
         """
         if "unit_vec_x" in self.pointings.columns and not recompute:
             return
@@ -210,6 +251,8 @@ class PointingTable:
         self.pointings["unit_vec_x"] = pointings_cart.x.value
         self.pointings["unit_vec_y"] = pointings_cart.y.value
         self.pointings["unit_vec_z"] = pointings_cart.z.value
+
+        return self
 
     def angular_dist_3d_heliocentric(self, cart_pt):
         """Compute the angular offset (in degrees) between the pointing and

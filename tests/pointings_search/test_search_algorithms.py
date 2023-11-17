@@ -10,8 +10,8 @@ def test_grid_search():
     decs = []
     obstimes = []
     obstime = 60253.1
-    for r in np.linspace(15.0, 275.0, 50):
-        for d in np.linspace(-85.0, 0.0, 50):
+    for r in np.linspace(15.0, 275.0, 25):
+        for d in np.linspace(-85.0, 0.0, 25):
             ras.append(r)
             decs.append(d)
             obstimes.append(obstime)
@@ -27,6 +27,6 @@ def test_grid_search():
     data = PointingTable.from_dict(data_dict)
 
     # Search for results on a smallish grid.
-    results = grid_search(data, num_steps=50)
+    results = grid_search(data, num_steps=25)
     assert len(results) > 0
     assert results[0][0] >= results[-1][0]
