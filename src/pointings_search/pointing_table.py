@@ -1,6 +1,7 @@
 """A class for loading, storing and querying the pointings data."""
 
 import sqlite3
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -9,6 +10,8 @@ from astropy import units as u
 from astropy.coordinates import CartesianRepresentation, SkyCoord, get_body_barycentric
 from astropy.table import Table
 from astropy.time import Time
+
+from .fits_utils import pointing_dict_from_fits_files
 
 
 class PointingTable:
@@ -96,6 +99,25 @@ class PointingTable:
     def __len__(self):
         """Return the length of the pointing table."""
         return len(self.pointings)
+
+    @classmethod
+    def from_fits(self, base_dir, file_pattern, extension=-1):
+        """Create a PointingTable from multiple of FITS files.
+        Requires each FITS file to have a valid timestamp(s) and a valid WCS
+        for each layer indicating an observation.
+
+        Parameters
+        ----------
+        base_dir : `str`
+            The base directory in which to search.
+        pattern : `str`
+            The pattern of the filenames to read. Can be a single filename.
+        extension : `int`
+            The layer in which to read the WCS and obstime. If no layer is given
+            it will try to read a WCS from all layers.
+        """
+        data_dict = pointing_dict_from_fits_files(base_dir, file_pattern, extension)
+        return PointingTable.from_dict(data_dict)
 
     def _check_and_rename_column(self, col_name, alt_names, required=True):
         """Check if the column is included using multiple possible names

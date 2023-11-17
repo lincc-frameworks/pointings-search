@@ -76,6 +76,16 @@ def test_from_csv(test_data_dir):
     assert len(data.pointings.columns) == 5
 
 
+def test_from_fits(test_data_dir):
+    data = PointingTable.from_fits(test_data_dir, "*.fits")
+    assert len(data.pointings) == 4
+    assert "ra" in data.pointings.columns
+    assert "dec" in data.pointings.columns
+    assert "obstime" in data.pointings.columns
+    assert "filename" in data.pointings.columns
+    assert "layer" in data.pointings.columns
+
+
 def test_to_csv():
     """Confirm that we can save and reload the basic data."""
     data_dict = {
