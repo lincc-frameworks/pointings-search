@@ -7,7 +7,7 @@ create_example_module: false
 custom_install: true
 include_benchmarks: false
 include_docs: true
-include_notebooks: true
+include_notebooks: false
 mypy_type_checking: none
 package_name: pointings_search
 preferred_linter: black

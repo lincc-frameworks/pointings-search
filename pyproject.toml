@@ -15,7 +15,10 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
+    "astropy",
     "ipykernel", # Support for Jupyter notebooks
+    "numpy",
+    "pandas",
 ]
 
 # On a mac, install optional dependencies with `pip install '.[dev]'` (include the single quotes)
@@ -35,7 +38,6 @@ dev = [
     "nbsphinx", # Used to integrate Python notebooks into Sphinx documentation
     "ipython", # Also used in building notebooks into Sphinx
     "matplotlib", # Used in sample notebook intro_notebook.ipynb
-    "numpy", # Used in sample notebook intro_notebook.ipynb
 ]
 
 [metadata]
