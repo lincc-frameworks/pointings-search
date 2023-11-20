@@ -85,7 +85,6 @@ class PointingTable:
             select_data = colmap_cursor.execute(f"SELECT * FROM {table_name} LIMIT 1")
             for col in select_data.description:
                 columns_map[col[0]] = col[0]
-        print(f"Using colmap = {columns_map}")
 
         # Construct both the SQL query and the dictionary to hold the results.
         data_dict = {}
@@ -97,7 +96,6 @@ class PointingTable:
             else:
                 db_query += f", {columns_map[key]} as {key}"
         db_query += f" FROM {table_name}"
-        print(f"Using query: {db_query}")
 
         # Read the data from the database.
         row_cursor = connection.cursor()
