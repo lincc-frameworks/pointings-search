@@ -13,7 +13,7 @@ from pointings_search.pointing_table import PointingTable
 def exhaustive_search(data, options, min_images=5, max_results=100):
     """Perform a linear search over the options defined by a BaseSearchIterator.
 
-    Current approach is turly brute force and makes no attempt at early pruning.
+    Current approach is truly brute force and makes no attempt at early pruning.
 
     Parameters
     ----------
