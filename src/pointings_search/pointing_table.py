@@ -357,7 +357,7 @@ class PointingTable:
         db_name : `str`
             The file location of pointing database.
         table_name : `str`
-            The table to query from the database.
+            The table to write in the database.
         overwrite : `bool`
             A Boolean indicating whether to overwrite the an existing table.
         """
