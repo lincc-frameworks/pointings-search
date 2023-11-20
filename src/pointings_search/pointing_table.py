@@ -356,9 +356,9 @@ class PointingTable:
         db_name : `str`
             The file location of pointing database.
         table_name : `str`
-            The table to query from the database.
+            The table to write in the database.
         overwrite : `bool`
-            A Boolean indicating whether to overwrite the an existing table.
+            A Boolean indicating whether to overwrite any existing table.
         """
         with sqlite3.connect(db_name) as connection:
             # Check if the table exists.
