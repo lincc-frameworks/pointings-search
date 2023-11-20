@@ -175,13 +175,14 @@ def test_to_sqlite():
         assert "earth_vec_z" in data2.pointings.columns
 
         # Load only a subset of the data.
-        colmaps = {"obstime": "obstime", "ra": "ra", "dec": "dec"}
+        colmaps = {"obstime": "obstime", "ra": "ra", "dec": "dec", "brightness": "flux"}
         data3 = PointingTable.from_sqlite(filename, "pointings", colmaps)
         assert len(data3.pointings) == 5
-        assert len(data3.pointings.columns) == 3
+        assert len(data3.pointings.columns) == 4
         assert np.allclose(data3.pointings["ra"], data_dict["ra"])
         assert np.allclose(data3.pointings["dec"], data_dict["dec"])
         assert np.allclose(data3.pointings["obstime"], data_dict["obstime"])
+        assert np.allclose(data3.pointings["brightness"], data_dict["flux"])
 
         # Fail on overwrite an existing table.
         with pytest.raises(Exception):

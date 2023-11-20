@@ -76,33 +76,32 @@ class PointingTable:
             Must contain all required columns.
         """
         # Open the database.
-        connection = sqlite3.connect(db_name)
+        with sqlite3.connect(db_name) as connection:
+            # If we do not have a column map, load the entire table with the existing
+            # column names.
+            if columns_map is None:
+                columns_map = {}
+                colmap_cursor = connection.cursor()
+                select_data = colmap_cursor.execute(f"SELECT * FROM {table_name} LIMIT 1")
+                for col in select_data.description:
+                    columns_map[col[0]] = col[0]
 
-        # If we do not have a column map, load the entire table with the existing column names.
-        if columns_map is None:
-            columns_map = {}
-            colmap_cursor = connection.cursor()
-            select_data = colmap_cursor.execute(f"SELECT * FROM {table_name} LIMIT 1")
-            for col in select_data.description:
-                columns_map[col[0]] = col[0]
+            # Construct both the SQL query and the dictionary to hold the results.
+            data_dict = {}
+            db_query = "SELECT"
+            for key in columns_map:
+                data_dict[key] = []
+                if len(db_query) <= 8:
+                    db_query += f" {columns_map[key]} as {key}"
+                else:
+                    db_query += f", {columns_map[key]} as {key}"
+            db_query += f" FROM {table_name}"
 
-        # Construct both the SQL query and the dictionary to hold the results.
-        data_dict = {}
-        db_query = "SELECT"
-        for key in columns_map:
-            data_dict[key] = []
-            if len(db_query) <= 8:
-                db_query += f" {columns_map[key]} as {key}"
-            else:
-                db_query += f", {columns_map[key]} as {key}"
-        db_query += f" FROM {table_name}"
-
-        # Read the data from the database.
-        row_cursor = connection.cursor()
-        for row in row_cursor.execute(db_query):
-            for i, key in enumerate(data_dict):
-                data_dict[key].append(row[i])
-        connection.close()
+            # Read the data from the database.
+            row_cursor = connection.cursor()
+            for row in row_cursor.execute(db_query):
+                for i, key in enumerate(data_dict):
+                    data_dict[key].append(row[i])
 
         # Convert the data into an astropy Table and validate
         ap_table = Table(data_dict)
@@ -361,31 +360,32 @@ class PointingTable:
         overwrite : `bool`
             A Boolean indicating whether to overwrite the an existing table.
         """
-        # Check if the table exists.
-        connection = sqlite3.connect(db_name)
-        test_cursor = connection.cursor()
-        try:
-            reader = test_cursor.execute(f"SELECT * FROM {table_name} LIMIT 1")
-            if reader.fetchone() is not None:
-                if not overwrite:
-                    raise ValueError(f"Table {table_name} exists.")
-                else:
-                    connection.execute(f"DROP TABLE {table_name}")
-        except sqlite3.OperationalError:
-            pass
+        with sqlite3.connect(db_name) as connection:
+            # Check if the table exists.
+            test_cursor = connection.cursor()
+            try:
+                reader = test_cursor.execute(f"SELECT * FROM {table_name} LIMIT 1")
+                if reader.fetchone() is not None:
+                    if not overwrite:
+                        raise ValueError(f"Table {table_name} exists.")
+                    else:
+                        connection.execute(f"DROP TABLE {table_name}")
+            except sqlite3.OperationalError:
+                pass
 
-        # Create the table.
-        column_names = ", ".join(self.pointings.columns)
-        connection.execute(f"CREATE TABLE {table_name} ({column_names})")
-        print(f"CREATE TABLE {table_name} ({column_names})")
+            # Create the table.
+            column_names = ", ".join(self.pointings.columns)
+            connection.execute(f"CREATE TABLE {table_name} ({column_names})")
 
-        # Insert the rows.
-        write_cursor = connection.cursor()
-        for i in range(len(self.pointings)):
-            row_data = ", ".join([str(value) for value in self.pointings[i].values()])
-            write_cursor.execute(f"INSERT INTO {table_name} VALUES ({row_data})")
-            print(f"INSERT INTO {table_name} VALUES ({row_data})")
+            # Insert the rows.
+            write_cursor = connection.cursor()
+            for i, row in enumerate(self.pointings):
+                row_data = ", ".join([str(value) for value in row.values()])
+                write_cursor.execute(f"INSERT INTO {table_name} VALUES ({row_data})")
 
-        # Close the connection.
-        connection.commit()
-        connection.close()
+                # Do occasional commits.
+                if i % 1000 == 0:
+                    connection.commit()
+
+            # Do a final commit.
+            connection.commit()
