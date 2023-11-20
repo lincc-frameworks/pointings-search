@@ -143,6 +143,26 @@ def test_to_csv_cached():
         assert "earth_vec_z" in data2.pointings.columns
 
 
+def test_filter_time():
+    data_dict = {
+        "ra": [0.0] * 10,
+        "dec": [0.0] * 10,
+        "obstime": [60253.0 + i for i in range(10)],
+    }
+    data = PointingTable.from_dict(data_dict)
+    assert len(data) == 10
+
+    data.filter_on_time(min_obstime=60255.0)
+    assert len(data) == 8
+    for i in range(len(data)):
+        assert data.pointings["obstime"][i] >= 60255.0
+
+    data.filter_on_time(max_obstime=60257.5)
+    assert len(data) == 3
+    for i in range(len(data)):
+        assert data.pointings["obstime"][i] <= 60257.5
+
+
 def test_to_sqlite():
     """Confirm that we can save and reload the basic data."""
     data_dict = {

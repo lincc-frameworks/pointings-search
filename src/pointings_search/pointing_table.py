@@ -109,6 +109,10 @@ class PointingTable:
         result.validate_and_standardize()
         return result
 
+    def __len__(self):
+        """Return the length of the pointing table."""
+        return len(self.pointings)
+
     @classmethod
     def from_fits(self, base_dir, file_pattern, extension=-1):
         """Create a PointingTable from multiple of FITS files.
@@ -175,6 +179,10 @@ class PointingTable:
             `RightAscension (deg)` or `RA (deg)` we would pass
             alt_names={"ra": ["RightAscension (deg)", "RA (deg)"]}
 
+        Returns
+        -------
+        self reference for chaining.
+
         Raises
         ------
         KeyError is the column is required and not present.
@@ -193,6 +201,29 @@ class PointingTable:
         )
         for key in alt_names.keys():
             self._check_and_rename_column(key, alt_names[key], required=False)
+        return self
+
+    def filter_on_time(self, min_obstime=None, max_obstime=None):
+        """Filter the table to only include rows within the time bounds.
+
+        Parameters
+        ----------
+        min_obstime : `float`, optional
+            The minimum observation time. If no time is given then no
+            lower bound filtering is done.
+        max_obstime : `float`, optional
+            The maximum observation time. If no time is given then no
+            upper bound filtering is done.
+
+        Returns
+        -------
+        self reference for chaining.
+        """
+        if min_obstime is not None:
+            self.pointings = self.pointings[self.pointings["obstime"] >= min_obstime]
+        if max_obstime is not None:
+            self.pointings = self.pointings[self.pointings["obstime"] <= max_obstime]
+        return self
 
     def append_earth_pos(self, recompute=False):
         """Compute an approximate position of the Earth (relative to solar systems's
@@ -203,6 +234,10 @@ class PointingTable:
         ----------
         recompute : `bool`
             If the column already exists, recompute it and overwrite.
+
+        Returns
+        -------
+        self reference for chaining.
         """
         if "earth_vec_x" in self.pointings.columns and not recompute:
             return
@@ -218,6 +253,8 @@ class PointingTable:
         self.pointings["earth_vec_y"] = earth_pos_cart.y.value
         self.pointings["earth_vec_z"] = earth_pos_cart.z.value
 
+        return self
+
     def preprocess_pointing_info(self, recompute=False):
         """Convert the raw RA, dec, and time columns into a astropy
         SkyCoord. Caches the result within the table
@@ -227,6 +264,10 @@ class PointingTable:
         ----------
         recompute : `bool`
             If the column already exists, recompute it and overwrite.
+
+        Returns
+        -------
+        self reference for chaining.
         """
         if "unit_vec_x" in self.pointings.columns and not recompute:
             return
@@ -245,6 +286,8 @@ class PointingTable:
         self.pointings["unit_vec_x"] = pointings_cart.x.value
         self.pointings["unit_vec_y"] = pointings_cart.y.value
         self.pointings["unit_vec_z"] = pointings_cart.z.value
+
+        return self
 
     def angular_dist_3d_heliocentric(self, cart_pt):
         """Compute the angular offset (in degrees) between the pointing and
@@ -295,6 +338,43 @@ class PointingTable:
 
         return dist
 
+    def search_heliocentric_xyz(self, point, fov=None):
+        """Search for pointings that would overlap a given heliocentric
+        pointing and estimated distance. Allows a single field of view
+        or per pointing field of views.
+
+        Note
+        ----
+        Currently uses a linear algorithm that computes all distances. It
+        is likely we can accelerate this with better indexing.
+
+        Parameters
+        ----------
+        point : tuple, list, or array
+            The point represented as (x, y, z) on which to compute the distances.
+        fov : `float` (optional)
+            The field of view of the individual pointings. If None
+            tries to retrieve from table.
+
+        Returns
+        -------
+        An astropy table with information for the matching pointings.
+
+        Raises
+        ------
+        ValueError if no field of view is provided.
+        """
+        if fov is None and "fov" not in self.pointings.columns:
+            raise ValueError("No field of view provided.")
+
+        # Compare the angular distance of the query point to each pointing.
+        ang_dist = self.angular_dist_3d_heliocentric(point)
+        if fov is None:
+            inds = ang_dist.value < self.pointings["fov"]
+        else:
+            inds = ang_dist.value < fov
+        return self.pointings[inds]
+
     def search_heliocentric_pointing(self, point, fov=None):
         """Search for pointings that would overlap a given heliocentric
         pointing and estimated distance. Allows a single field of view
@@ -320,20 +400,9 @@ class PointingTable:
         ------
         ValueError if no field of view is provided.
         """
-        if fov is None and "fov" not in self.pointings.columns:
-            raise ValueError("No field of view provided.")
-
-        # Create the query point in 3-d heliocentric cartesian space.
         cart_pt = point.cartesian
         helio_pt = [cart_pt.x.value, cart_pt.y.value, cart_pt.z.value]
-
-        # Compare the angular distance of the query point to each pointing.
-        ang_dist = self.angular_dist_3d_heliocentric(helio_pt)
-        if fov is None:
-            inds = ang_dist.value < self.pointings["fov"]
-        else:
-            inds = ang_dist.value < fov
-        return self.pointings[inds]
+        return self.search_heliocentric_xyz(helio_pt, fov)
 
     def to_csv(self, filename, overwrite=False):
         """Write the pointings data to a CSV file.
