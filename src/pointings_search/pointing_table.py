@@ -359,7 +359,7 @@ class PointingTable:
         table_name : `str`
             The table to write in the database.
         overwrite : `bool`
-            A Boolean indicating whether to overwrite the an existing table.
+            A Boolean indicating whether to overwrite any existing table.
         """
         # Check if the table exists.
         connection = sqlite3.connect(db_name)
