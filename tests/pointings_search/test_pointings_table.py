@@ -185,7 +185,10 @@ def test_to_sqlite():
 
         # Fail on overwrite an existing table.
         with pytest.raises(Exception):
-            data3.to_sqllite(filename, "pointings")
+            data3.to_sqlite(filename, "pointings")
+
+        # For on overwrite an existing table.
+        data3.to_sqlite(filename, "pointings", True)
 
 
 def test_append_earth_pos():

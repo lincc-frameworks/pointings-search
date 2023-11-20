@@ -370,7 +370,7 @@ class PointingTable:
                 if not overwrite:
                     raise ValueError(f"Table {table_name} exists.")
                 else:
-                    cursor.execute(f"DROP TABLE {table_name}")
+                    connection.execute(f"DROP TABLE {table_name}")
         except sqlite3.OperationalError:
             pass
 
