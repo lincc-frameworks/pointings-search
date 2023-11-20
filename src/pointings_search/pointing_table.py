@@ -4,7 +4,6 @@ import sqlite3
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 from astropy import io
 from astropy import units as u
 from astropy.coordinates import CartesianRepresentation, SkyCoord, get_body_barycentric
@@ -62,10 +61,8 @@ class PointingTable:
         return result
 
     @classmethod
-    def from_sqllite(cls, db_name, table_name, columns_map):
+    def from_sqlite(cls, db_name, table_name, columns_map=None):
         """Create the PointingTable from a sqllite database file.
-
-        The columns map must have the following
 
         Parameters
         ----------
@@ -73,25 +70,41 @@ class PointingTable:
             The file location of pointing database.
         table_name : `str`
             The table to query from the database.
-        columns_map : `dict`
+        columns_map : `dict`, optional
             A dictionary indcating which columns to load and mapping the
             column name in the PointingTable to the column name in the SQL database.
             Must contain all required columns.
         """
-        db_query = "SELECT"
-        for key in columns_map:
-            if len(db_query) <= 8:
-                db_query += f" {columns_map[key]} as {key}"
-            else:
-                db_query += f", {columns_map[key]} as {key}"
-        db_query += f" FROM {table_name}"
+        # Open the database.
+        with sqlite3.connect(db_name) as connection:
+            # If we do not have a column map, load the entire table with the existing
+            # column names.
+            if columns_map is None:
+                columns_map = {}
+                colmap_cursor = connection.cursor()
+                select_data = colmap_cursor.execute(f"SELECT * FROM {table_name} LIMIT 1")
+                for col in select_data.description:
+                    columns_map[col[0]] = col[0]
 
-        # Read the data from the database.
-        connection = sqlite3.connect(db_name)
-        pandas_df = pd.read_sql_query(db_query, connection)
+            # Construct both the SQL query and the dictionary to hold the results.
+            data_dict = {}
+            db_query = "SELECT"
+            for key in columns_map:
+                data_dict[key] = []
+                if len(db_query) <= 8:
+                    db_query += f" {columns_map[key]} as {key}"
+                else:
+                    db_query += f", {columns_map[key]} as {key}"
+            db_query += f" FROM {table_name}"
 
-        # Convert the data into an astropy Table (from the Panda's table).
-        ap_table = Table.from_pandas(pandas_df)
+            # Read the data from the database.
+            row_cursor = connection.cursor()
+            for row in row_cursor.execute(db_query):
+                for i, key in enumerate(data_dict):
+                    data_dict[key].append(row[i])
+
+        # Convert the data into an astropy Table and validate
+        ap_table = Table(data_dict)
         result = PointingTable(ap_table)
         result.validate_and_standardize()
         return result
@@ -401,4 +414,47 @@ class PointingTable:
         overwrite: `bool`
             Whether to overwrite an existing file.
         """
-        self.pointings.write(filename, overwrite=overwrite)
+        self.pointings.write(filename, overwrite=False)
+
+    def to_sqlite(self, db_name, table_name, overwrite=False):
+        """Write the SQL data to a sqlite database potentially
+        overwriting an existing table.
+
+        Parameters
+        ----------
+        db_name : `str`
+            The file location of pointing database.
+        table_name : `str`
+            The table to write in the database.
+        overwrite : `bool`
+            A Boolean indicating whether to overwrite any existing table.
+        """
+        with sqlite3.connect(db_name) as connection:
+            # Check if the table exists.
+            test_cursor = connection.cursor()
+            try:
+                reader = test_cursor.execute(f"SELECT * FROM {table_name} LIMIT 1")
+                if reader.fetchone() is not None:
+                    if not overwrite:
+                        raise ValueError(f"Table {table_name} exists.")
+                    else:
+                        connection.execute(f"DROP TABLE {table_name}")
+            except sqlite3.OperationalError:
+                pass
+
+            # Create the table.
+            column_names = ", ".join(self.pointings.columns)
+            connection.execute(f"CREATE TABLE {table_name} ({column_names})")
+
+            # Insert the rows.
+            write_cursor = connection.cursor()
+            for i, row in enumerate(self.pointings):
+                row_data = ", ".join([str(value) for value in row.values()])
+                write_cursor.execute(f"INSERT INTO {table_name} VALUES ({row_data})")
+
+                # Do occasional commits.
+                if i % 1000 == 0:
+                    connection.commit()
+
+            # Do a final commit.
+            connection.commit()

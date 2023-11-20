@@ -163,6 +163,55 @@ def test_filter_time():
         assert data.pointings["obstime"][i] <= 60257.5
 
 
+def test_to_sqlite():
+    """Confirm that we can save and reload the basic data."""
+    data_dict = {
+        "ra": [0.0, 90.0, 45.0, 90.0, 270.0],
+        "dec": [0.0, 90.0, 0.0, 45.0, 0.0],
+        "obstime": [0.0, 1.0, 2.0, 3.0, 4.0],
+        "flux": [10.0, 10.0, 10.0, 10.0, 10.0],
+    }
+    data = PointingTable.from_dict(data_dict)
+    data.preprocess_pointing_info()
+    data.append_earth_pos()
+
+    with tempfile.TemporaryDirectory() as dir_name:
+        filename = path.join(dir_name, "tmp_test.db")
+        data.to_sqlite(filename, "pointings")
+
+        # Check that we can reload it. Use all columns.
+        data2 = PointingTable.from_sqlite(filename, "pointings")
+        assert len(data2.pointings) == 5
+        assert len(data2.pointings.columns) == 10
+        assert np.allclose(data2.pointings["ra"], data_dict["ra"])
+        assert np.allclose(data2.pointings["dec"], data_dict["dec"])
+        assert np.allclose(data2.pointings["obstime"], data_dict["obstime"])
+        assert np.allclose(data2.pointings["flux"], data_dict["flux"])
+        assert "unit_vec_x" in data2.pointings.columns
+        assert "unit_vec_y" in data2.pointings.columns
+        assert "unit_vec_z" in data2.pointings.columns
+        assert "earth_vec_x" in data2.pointings.columns
+        assert "earth_vec_y" in data2.pointings.columns
+        assert "earth_vec_z" in data2.pointings.columns
+
+        # Load only a subset of the data.
+        colmaps = {"obstime": "obstime", "ra": "ra", "dec": "dec", "brightness": "flux"}
+        data3 = PointingTable.from_sqlite(filename, "pointings", colmaps)
+        assert len(data3.pointings) == 5
+        assert len(data3.pointings.columns) == 4
+        assert np.allclose(data3.pointings["ra"], data_dict["ra"])
+        assert np.allclose(data3.pointings["dec"], data_dict["dec"])
+        assert np.allclose(data3.pointings["obstime"], data_dict["obstime"])
+        assert np.allclose(data3.pointings["brightness"], data_dict["flux"])
+
+        # Fail on overwrite an existing table.
+        with pytest.raises(Exception):
+            data3.to_sqlite(filename, "pointings")
+
+        # For on overwrite an existing table.
+        data3.to_sqlite(filename, "pointings", True)
+
+
 def test_append_earth_pos():
     data_dict = {
         "ra": [0.0, 90.0, 45.0, 90.0, 270.0],
