@@ -253,14 +253,14 @@ class PointingTree:
 
         # Compute the closest point C on the node's positional sphere to point Q.
         vect = pt_Q - self.pos_center
-        unit_vect = vect / np.sqrt(np.dot(vect))
+        unit_vect = vect / np.sqrt(np.dot(vect, vect))
         pt_C = self.pos_center + self.pos_radius * unit_vect
 
         # Check whether the angle from the target point to point C is within the cone.
-        TC_vect = pt_c - target
-        unit_TC = TC_vect / np.sqrt(np.dot(TC_vect))
+        TC_vect = pt_C - target
+        unit_TC = TC_vect / np.sqrt(np.dot(TC_vect, TC_vect))
         ang_dist = np.arccos(np.dot(unit_TC, -self.view_center)) * 180.0 / np.pi
-        return ang_dist <= self.view_radius
+        return ang_dist > self.view_radius + fov
 
     def search_heliocentric_xyz(self, target, fov, stats=None):
         if stats is not None:
