@@ -1,10 +1,23 @@
-"""A spatial data structure for storing and querying 6-d vectors representing
+"""A spatial data structure for storing and querying vectors representing
 pointing data."""
 
 import numpy as np
 
 from pointings_search.pointing_table import PointingTable
 
+class SearchStats:
+    """A data class to store the search statistics
+
+    Attributes
+    ----------
+    nodes_checked : `int`
+        The number of nodes tested.
+    points_checked : `int`
+        The number of points tested.
+    """
+    def __init__(self):
+        self.nodes_checked = 0
+        self.points_checked = 0
 
 class PointingTree:
     """A PointingTree is a kd-tree over data with data with the following
@@ -16,6 +29,7 @@ class PointingTree:
         4: unit_vec_x
         5: unit_vec_y
         6: unit_vec_z
+        7: field of view [optional]
 
     Attributes
     ----------
@@ -24,37 +38,127 @@ class PointingTree:
         and non-None for leaf nodes.
     num_points : `int`
         The number of points in this tree.
+    pos_center : `numpy.ndarray`
+        A 3d array with the center of the position (earth vectors).
+    pos_radius : `float`
+        The radius of the node's spatial footprint: the maximum distance
+        from pos_center to any earth_vec in the node.
     low_bnd : `numpy.ndarray`
         The lowest value in each column of the points in this tree.
     high_bnd : `numpy.ndarray`
         The highest value in each column of the points in this tree.
-    split_col : `int`
-        The column along which this node is split. -1 for leaf nodes.
-    split_value : `float`
-        The value along which the node is split.
+    view_center : `numpy.ndarray`
+        A 3d array representing the "central pointing" of the node (a unit vector).
+    view_radius : `numpy.ndarray`
+        The radius of the node's viewing cone: the maximum angular distance
+        from view_center to any unit_vec in the node.
     left_child : `PointingTree`
         A reference to the left subtree (all values where
         pointing[split_col] < split_value). None for leaf nodes.
     right_child : `PointingTree`
         A reference to the right subtree (all values where
         pointing[split_col] >= split_value). None for leaf nodes.
+    split_col : `int`
+        For debugging: The column along which this node is split. -1 for leaf nodes. 
+    split_value : `float`
+        for debugging: The value along which the node is split.
     """
 
     def __init__(self, pointings):
-        if pointings.shape[1] != 7:
+        if pointings.shape[1] < 7:
             raise ValueError("Incorrect shape for pointing tree data: {pointings.shape}")
 
+        # Set the node up as a leaf with no children and all the pointings.
         self.pointings = pointings
         self.num_points = len(pointings)
-        self.low_bnd = np.min(pointings, axis=0)
-        self.high_bnd = np.max(pointings, axis=0)
-
-        self.split_col = -1
-        self.split_value = 0.0
         self.left_child = None
         self.right_child = None
 
-    def recursive_split(self, max_widths, max_points=10, min_width=1e-6):
+        # Compute the center of the positions and the viewing cone. Make the center of
+        # the viewing cone a unit vector handling the edge case where the average is exactly zero.
+        self.low_bnd = np.min(pointings, axis=0)
+        self.high_bnd = np.max(pointings, axis=0)
+        self.pos_center = 0.5 * (self.high_bnd[1:4] + self.low_bnd[1:4])
+        self.view_center = 0.5 * (self.high_bnd[4:7] + self.low_bnd[4:7])
+        if self.view_center[0] == 0.0 and self.view_center[1] == 0.0 and self.view_center[2] == 0.0:
+            self.view_center[0] == 1.0
+        else:
+            normalizer = np.sqrt(np.sum(np.square(self.view_center)))
+            self.view_center = self.view_center / normalizer
+
+        # Compute the radius of the node's positional footprint.
+        distances = np.sqrt(np.sum(np.square(self.pointings[:, 1:4] - self.pos_center), axis=1))
+        self.pos_radius = np.max(distances)
+
+        # Compute the angular radius of the node's viewing cone (in degrees).
+        # Since we are only dealing with unit vectors the magnitudes are all 1
+        # Clip to 1.0 to avoid problems with numerical precision.
+        dots = np.dot(self.pointings[:, 4:7], self.view_center)
+        dots[dots > 1.0] = 1.0
+        distances = np.arccos(dots) * (180.0 / np.pi)
+
+        if pointings.shape[1] == 8:
+            # Add the field of views to the distances before computing the max.
+            distances += pointings[:, 7]
+
+        self.view_radius = np.max(distances)
+
+    def recursive_split_dist(self, effective_dist=1.0, max_points=10, min_width=1e-6):
+        """Split the node to break up the amount of space covered. Project the points
+        out to an effective_distance and use that for partitioning.
+
+        Parameters
+        ----------
+        effective_dist : `float`
+            The effective distance of the search.
+        max_points : `int`
+            The maximum number of points to include in a leaf node.
+        min_width : `float`
+            The minimal normalized width in each dimension.
+
+        Returns
+        -------
+        A Boolean indicating whether the node was split.
+        """
+        # Do not split an internal node.
+        if self.pointings is None:
+            return False
+
+        # Check the stopping criteria based on number of points.
+        if self.num_points <= max_points:
+            return False
+
+        # Project the points out to their effective distances and compute the resulting bounding box.
+        projected = self.pointings[:, 1:4] + effective_dist * self.pointings[:, 4:7]
+        prj_low = np.min(projected, axis=0)
+        prj_high = np.max(projected, axis=0)
+
+        # Compute the widest dimension and check that stopping criteria.
+        widths = prj_high - prj_low
+        if np.max(widths) < min_width:
+            return False
+
+        # Compute the split.
+        self.split_col = np.argmax(widths)
+        self.split_value = 0.5 * (prj_high[self.split_col] + prj_low[self.split_col])
+        right_pointings = self.pointings[projected[:, self.split_col] >= self.split_value]
+        left_pointings = self.pointings[projected[:, self.split_col] < self.split_value]
+
+        # Remove the local copy of the pointings. Need to do this before creating the children
+        # to avoid exploding memory.
+        self.pointings = None
+
+        # Create a right child.
+        self.right_child = PointingTree(right_pointings)
+        self.right_child.recursive_split_dist(effective_dist, max_points, min_width)
+
+        # Create a left child.
+        self.left_child = PointingTree(left_pointings)
+        self.left_child.recursive_split_dist(effective_dist, max_points, min_width)
+
+        return True
+
+    def recursive_split_kd(self, max_widths, max_points=10, min_width=1e-6):
         """Split the node along the 'widest' spatial column (ignoring the index column)
         where each dimension is normalized by max_widths. We recursively
         split the node until either it has fewer than max_points or is smaller than
@@ -99,22 +203,118 @@ class PointingTree:
 
         # Create a right child.
         self.right_child = PointingTree(right_pointings)
-        self.right_child.recursive_split(max_widths, max_points, min_width)
+        self.right_child.recursive_split_kd(max_widths, max_points, min_width)
 
         # Create a left child.
         self.left_child = PointingTree(left_pointings)
-        self.left_child.recursive_split(max_widths, max_points, min_width)
+        self.left_child.recursive_split_kd(max_widths, max_points, min_width)
 
         return True
 
+    def prune(self, target, fov=0.0):
+        """Determines whether or not to prune the node based on whether
+        any pointing in this subtree could see the target point.
 
-def build_pointing_tree(data, max_points=10, min_width=1e-6):
+        Parameters
+        ----------
+        target : `numpy.ndarray`
+            A length 3 numpy array indicating a (x, y, z) point.
+        fov : `float`
+            The maximum field of view for the pointings in degrees.
+            Should be zero if per-pointing FOV was included in the input data.
+
+        Returns
+        -------
+        prune : `bool`
+            A Boolean indicating whether to prune the node.
+        """
+        # If the target point is in the positional sphere, do not prune.
+        dist_to_center = np.sqrt(np.sum(np.square(self.pos_center - target)))
+        if dist_to_center <= self.pos_radius:
+            return False
+        
+        # Using a cone coming from the target point and centered on the *inverse* of
+        # the node's central ray: X = P - alpha * view_center
+        # compute how far along the ray is the closest point Q to the center.
+        dist_along_ray = np.dot(self.pos_center - target, -self.view_center)
+        if dist_along_ray < 0:
+            return True
+        pt_Q = target - dist_along_ray * self.view_center
+
+        # If point Q falls within the node's positional sphere, don't prune.
+        dist_to_center = np.sqrt(np.sum(np.square(self.pos_center - pt_Q)))
+        if dist_to_center <= self.pos_radius:
+            return False
+
+        # Compute the closest point C on the node's positional sphere to point Q.
+        vect = pt_Q - self.pos_center
+        unit_vect = vect / np.sqrt(np.dot(vect))
+        pt_C = self.pos_center + self.pos_radius * unit_vect
+        
+        # Check whether the angle from the target point to point C is within the cone.
+        TC_vect = pt_c - target
+        unit_TC = TC_vect / np.sqrt(np.dot(TC_vect))
+        ang_dist = np.arccos(np.dot(unit_TC, -self.view_center)) * 180.0 / np.pi
+        return ang_dist <= self.view_radius
+
+    def search_heliocentric_xyz(self, target, fov, stats=None):
+        if stats is not None:
+            stats.nodes_checked += 1
+
+        # Test if we can prune the node.
+        if self.prune(target, fov):
+            return []
+
+        # Recursively explore children
+        if self.left_child is not None:
+            r_res = self.right_child.search_heliocentric_xyz(target, fov)
+            l_res = self.left_child.search_heliocentric_xyz(target, fov)
+            if len(r_res) == 0:
+                return l_res
+            if len(l_res) == 0:
+                return r_res
+            return np.append(r_res, l_res, axis=0)
+
+        # Compute the geocentric cartesian position of the point in the ICRS frame.
+        geo_pts = CartesianRepresentation(
+            target[0] - self.pointings[:, 1],
+            target[1] - self.pointings[:, 2],
+            target[2] - self.pointings[:, 3],
+        )
+
+        # Put the pointing data into a CartesianRepresentation so we can use astropy's functions.
+        pointing_pts = CartesianRepresentation(
+            self.pointings[:, 4],
+            self.pointings[:, 5],
+            self.pointings[:, 6],
+        )
+
+        # Compute the angular distance from the dot product of the vectors. This can be slightly
+        # inaccurate very close to 0, but is sufficient for pruning. Since we are using the vectors,
+        # (instead of RA, dec) we do not need to worry about the poles.
+        norm = geo_pts.norm()
+        dot = geo_pts.dot(pointing_pts)
+        dist = np.arccos(dot / norm).to(u.deg)
+            
+        res = self.pointings[dist.value <= fov, :]
+
+        if stats is not None:
+            stats.points_checked += 1
+
+        return res
+
+        
+
+def build_pointing_tree(data, effective_dist=-1.0, max_points=10, min_width=1e-6):
     """Create a PointingTree from a PointingTable
 
     Parameters
     ----------
     data : `PointingTable`
         The table of pointings over which to search.
+    effective_dist : `float`
+        The effective distance to use. For any value < 0.0 use the weighted dimension splitting.
+        For 0.0 use the unweighted dimensional splitting.
     max_points : `int`
         The maximum number of points to include in a leaf node.
     min_width : `float`
@@ -131,13 +331,21 @@ def build_pointing_tree(data, max_points=10, min_width=1e-6):
             data.pointings["unit_vec_y"].value,
             data.pointings["unit_vec_z"].value,
         ]
-    ).T
+    )
+    if "fov" in data.pointings.columns:
+        arr_data = arr_data.append(data.pointings["fov"].value)
 
     # allocate the tree root.
-    root = PointingTree(arr_data)
+    root = PointingTree(arr_data.T)
 
     # Compute the normalization factors and split the tree.
-    max_widths = root.high_bnd[1:7] - root.low_bnd[1:7]
-    root.recursive_split(max_widths, max_points, min_width)
+    if effective_dist <= 0.0:
+        if effective_dist == 0.0:
+            max_widths = np.array([1.0] * 6)
+        else:
+            max_widths = root.high_bnd[1:7] - root.low_bnd[1:7]
+        root.recursive_split_kd(max_widths, max_points, min_width)
+    else:
+        root.recursive_split_dist(effective_dist, max_points, min_width)
 
     return root
