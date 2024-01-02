@@ -5,6 +5,7 @@ import numpy as np
 
 from pointings_search.pointing_table import PointingTable
 
+
 class SearchStats:
     """A data class to store the search statistics
 
@@ -15,9 +16,11 @@ class SearchStats:
     points_checked : `int`
         The number of points tested.
     """
+
     def __init__(self):
         self.nodes_checked = 0
         self.points_checked = 0
+
 
 class PointingTree:
     """A PointingTree is a kd-tree over data with data with the following
@@ -59,7 +62,7 @@ class PointingTree:
         A reference to the right subtree (all values where
         pointing[split_col] >= split_value). None for leaf nodes.
     split_col : `int`
-        For debugging: The column along which this node is split. -1 for leaf nodes. 
+        For debugging: The column along which this node is split. -1 for leaf nodes.
     split_value : `float`
         for debugging: The value along which the node is split.
     """
@@ -73,6 +76,8 @@ class PointingTree:
         self.num_points = len(pointings)
         self.left_child = None
         self.right_child = None
+        self.split_col = -1
+        self.split_value = 0.0
 
         # Compute the center of the positions and the viewing cone. Make the center of
         # the viewing cone a unit vector handling the edge case where the average is exactly zero.
@@ -232,7 +237,7 @@ class PointingTree:
         dist_to_center = np.sqrt(np.sum(np.square(self.pos_center - target)))
         if dist_to_center <= self.pos_radius:
             return False
-        
+
         # Using a cone coming from the target point and centered on the *inverse* of
         # the node's central ray: X = P - alpha * view_center
         # compute how far along the ray is the closest point Q to the center.
@@ -250,7 +255,7 @@ class PointingTree:
         vect = pt_Q - self.pos_center
         unit_vect = vect / np.sqrt(np.dot(vect))
         pt_C = self.pos_center + self.pos_radius * unit_vect
-        
+
         # Check whether the angle from the target point to point C is within the cone.
         TC_vect = pt_c - target
         unit_TC = TC_vect / np.sqrt(np.dot(TC_vect))
@@ -295,7 +300,7 @@ class PointingTree:
         norm = geo_pts.norm()
         dot = geo_pts.dot(pointing_pts)
         dist = np.arccos(dot / norm).to(u.deg)
-            
+
         res = self.pointings[dist.value <= fov, :]
 
         if stats is not None:
@@ -303,7 +308,6 @@ class PointingTree:
 
         return res
 
-        
 
 def build_pointing_tree(data, effective_dist=-1.0, max_points=10, min_width=1e-6):
     """Create a PointingTree from a PointingTable
