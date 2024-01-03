@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 from astropy import io
 from astropy import units as u
-from astropy.coordinates import CartesianRepresentation, SkyCoord, get_body_barycentric
+from astropy.coordinates import SkyCoord, get_body_barycentric
 from astropy.table import Table
 from astropy.time import Time
 
@@ -315,33 +315,39 @@ class PointingTable:
         if "unit_vec_x" not in self.pointings.columns:
             self.preprocess_pointing_info()
 
-        # Compute the geocentric cartesian position of the point in the ICRS frame.
-        geo_pts = CartesianRepresentation(
-            (cart_pt[0] - self.pointings["earth_vec_x"]),
-            (cart_pt[1] - self.pointings["earth_vec_y"]),
-            (cart_pt[2] - self.pointings["earth_vec_z"]),
-        )
+        # Compute the geocentric cartesian position of the point and the vector magnitudes.
+        geo_pts = np.array(
+            [
+                cart_pt[0] - self.pointings["earth_vec_x"],
+                cart_pt[1] - self.pointings["earth_vec_y"],
+                cart_pt[2] - self.pointings["earth_vec_z"],
+            ]
+        ).T
+        magnitudes = np.sqrt(np.sum(np.square(geo_pts), axis=1))
 
-        # Put the pointing data into a CartesianRepresentation so we can use astropy's functions.
-        pointing_pts = CartesianRepresentation(
-            self.pointings["unit_vec_x"],
-            self.pointings["unit_vec_y"],
-            self.pointings["unit_vec_z"],
-        )
+        # Compute the dot product of the viewing vectors and the position vectors
+        # to get the angular distances.
+        pointing_pts = np.array(
+            [
+                self.pointings["unit_vec_x"],
+                self.pointings["unit_vec_y"],
+                self.pointings["unit_vec_z"],
+            ]
+        ).T
+        dot_products = np.sum(np.multiply(geo_pts, pointing_pts), axis=1)
+        scaled = np.divide(dot_products, magnitudes)
 
-        # Compute the angular distance from the dot product of the vectors. This can be slightly
-        # inaccurate very close to 0, but is sufficient for pruning. Since we are using the vectors,
-        # (instead of RA, dec) we do not need to worry about the poles.
-        norm = geo_pts.norm()
-        dot = geo_pts.dot(pointing_pts)
-        dist = np.arccos(dot / norm).to(u.deg)
+        # Clip the scaled dot_products to 1 to avoid slight errors that can arise due
+        # to numerical precision.
+        scaled[scaled > 1.0] = 1.0
+        dist = np.arccos(scaled) * (180.0 / np.pi)
 
         return dist
 
     def search_heliocentric_xyz(self, point, fov=None):
         """Search for pointings that would overlap a given heliocentric
-        pointing and estimated distance. Allows a single field of view
-        or per pointing field of views.
+        point (x, y, z). Allows a single field of view or per pointing
+        field of views.
 
         Note
         ----
@@ -370,9 +376,9 @@ class PointingTable:
         # Compare the angular distance of the query point to each pointing.
         ang_dist = self.angular_dist_3d_heliocentric(point)
         if fov is None:
-            inds = ang_dist.value < self.pointings["fov"]
+            inds = ang_dist < self.pointings["fov"]
         else:
-            inds = ang_dist.value < fov
+            inds = ang_dist < fov
         return self.pointings[inds]
 
     def search_heliocentric_pointing(self, point, fov=None):
@@ -387,7 +393,8 @@ class PointingTable:
 
         Parameters
         ----------
-        point: a barycentric pointing with at least RA, dec, and distance.
+        point : `astropy.coordinates.SkyCoord`
+            a barycentric pointing with at least RA, dec, and distance.
         fov : `float` (optional)
             The field of view of the individual pointings. If None
             tries to retrieve from table.
