@@ -3,6 +3,9 @@ pointing data."""
 
 import numpy as np
 
+from astropy.coordinates import CartesianRepresentation, SkyCoord
+from astropy import units as u
+
 from pointings_search.pointing_table import PointingTable
 
 
@@ -233,6 +236,11 @@ class PointingTree:
         prune : `bool`
             A Boolean indicating whether to prune the node.
         """
+        # Skip the pruning test if the angular radius is too large. Avoids problems where the
+        # distance along the ray can be negative because the cone is over 180 degrees wide.
+        if self.view_radius >= 90.0:
+            return False
+
         # If the target point is in the positional sphere, do not prune.
         dist_to_center = np.sqrt(np.sum(np.square(self.pos_center - target)))
         if dist_to_center <= self.pos_radius:
@@ -262,7 +270,29 @@ class PointingTree:
         ang_dist = np.arccos(np.dot(unit_TC, -self.view_center)) * 180.0 / np.pi
         return ang_dist > self.view_radius + fov
 
-    def search_heliocentric_xyz(self, target, fov, stats=None):
+    def search_heliocentric_xyz(self, target, fov=0.0, stats=None):
+        """Search for pointings that would overlap a given heliocentric
+        point (x, y, z). Allows a single field of view or per pointing
+        field of views.
+
+        Parameters
+        ----------
+        point : tuple, list, or array
+            The point represented as (x, y, z) on which to compute the distances.
+        fov : `float` (optional)
+            The field of view of the individual pointings. If None
+            tries to retrieve from table.
+        stats : `SearchStats` (optional)
+            A data structure for performance statistics on the search.
+
+        Returns
+        -------
+        An astropy table with information for the matching pointings.
+
+        Raises
+        ------
+        ValueError if no field of view is provided.
+        """
         if stats is not None:
             stats.nodes_checked += 1
 
@@ -272,22 +302,21 @@ class PointingTree:
 
         # Recursively explore children
         if self.left_child is not None:
-            r_res = self.right_child.search_heliocentric_xyz(target, fov)
-            l_res = self.left_child.search_heliocentric_xyz(target, fov)
+            r_res = self.right_child.search_heliocentric_xyz(target, fov, stats)
+            l_res = self.left_child.search_heliocentric_xyz(target, fov, stats)
             if len(r_res) == 0:
                 return l_res
             if len(l_res) == 0:
                 return r_res
             return np.append(r_res, l_res, axis=0)
 
-        # Compute the geocentric cartesian position of the point in the ICRS frame.
+        # Compute the geocentric cartesian positions of the point.  Put all the data in
+        # CartesianRepresentation so we can use astropy's functions.
         geo_pts = CartesianRepresentation(
-            target[0] - self.pointings[:, 1],
-            target[1] - self.pointings[:, 2],
-            target[2] - self.pointings[:, 3],
+            (target[0] - self.pointings[:, 1]),
+            (target[1] - self.pointings[:, 2]),
+            (target[2] - self.pointings[:, 3]),
         )
-
-        # Put the pointing data into a CartesianRepresentation so we can use astropy's functions.
         pointing_pts = CartesianRepresentation(
             self.pointings[:, 4],
             self.pointings[:, 5],
@@ -301,12 +330,44 @@ class PointingTree:
         dot = geo_pts.dot(pointing_pts)
         dist = np.arccos(dot / norm).to(u.deg)
 
-        res = self.pointings[dist.value <= fov, :]
-
+        if fov > 0.0:
+            res = self.pointings[dist.value <= fov, :]
+        elif self.pointings.shape[1] == 8:
+            res = self.pointings[dist.value <= pointings[:, 7], :]
+        else:
+            raise ValueError("No field of view provided.")
+            
         if stats is not None:
             stats.points_checked += 1
 
         return res
+
+    def search_heliocentric_pointing(self, point, fov=0.0, stats=None):
+        """Search for pointings that would overlap a given heliocentric
+        pointing and estimated distance. Allows a single field of view
+        or per pointing field of views.
+
+        Parameters
+        ----------
+        point : `astropy.coordinates.SkyCoord`
+            a barycentric pointing with at least RA, dec, and distance.
+        fov : `float` (optional)
+            The field of view of the individual pointings. If None
+            tries to retrieve from table.
+        stats : `SearchStats` (optional)
+            A data structure for performance statistics on the search.
+
+        Returns
+        -------
+        An astropy table with information for the matching pointings.
+
+        Raises
+        ------
+        ValueError if no field of view is provided.
+        """
+        cart_pt = point.cartesian
+        helio_pt = [cart_pt.x.value, cart_pt.y.value, cart_pt.z.value]
+        return self.search_heliocentric_xyz(helio_pt, fov, stats)
 
 
 def build_pointing_tree(data, effective_dist=-1.0, max_points=10, min_width=1e-6):
@@ -323,23 +384,51 @@ def build_pointing_tree(data, effective_dist=-1.0, max_points=10, min_width=1e-6
         The maximum number of points to include in a leaf node.
     min_width : `float`
         The minimal normalized width in each dimension.
-    """
-    # Create the numpy array of the data for the tree.
-    arr_data = np.array(
-        [
-            np.arange(0, len(data)),
-            data.pointings["earth_vec_x"].value,
-            data.pointings["earth_vec_y"].value,
-            data.pointings["earth_vec_z"].value,
-            data.pointings["unit_vec_x"].value,
-            data.pointings["unit_vec_y"].value,
-            data.pointings["unit_vec_z"].value,
-        ]
-    )
-    if "fov" in data.pointings.columns:
-        arr_data = arr_data.append(data.pointings["fov"].value)
 
-    # allocate the tree root.
+    Returns
+    -------
+    root : `PointingTree`
+        The root node of the resulting pointing tree.
+
+    Raises
+    ------
+    KeyError if either the Earth's location data or the pointing unit vector data
+    is missing from the PointingTable.
+    """
+    if "earth_vec_x" not in data.pointings.columns:
+        raise KeyError("PointingTable missing Earth data. Call append_earth_pos()")
+    if "unit_vec_x" not in data.pointings.columns:
+        raise KeyError("PointingTable missing pointing data. Call preprocess_pointing_info()")
+    
+    # Create the numpy array of the data for the tree.
+    if "fov" in data.pointings.columns:
+        arr_data = np.array(
+            [
+                np.arange(0, len(data)),
+                data.pointings["earth_vec_x"].value,
+                data.pointings["earth_vec_y"].value,
+                data.pointings["earth_vec_z"].value,
+                data.pointings["unit_vec_x"].value,
+                data.pointings["unit_vec_y"].value,
+                data.pointings["unit_vec_z"].value,
+                data.pointings["fov"].value,
+            ]
+        )
+    else:
+        arr_data = np.array(
+            [
+                np.arange(0, len(data)),
+                data.pointings["earth_vec_x"].value,
+                data.pointings["earth_vec_y"].value,
+                data.pointings["earth_vec_z"].value,
+                data.pointings["unit_vec_x"].value,
+                data.pointings["unit_vec_y"].value,
+                data.pointings["unit_vec_z"].value,
+            ]
+        )
+
+
+    # Allocate the tree root.
     root = PointingTree(arr_data.T)
 
     # Compute the normalization factors and split the tree.

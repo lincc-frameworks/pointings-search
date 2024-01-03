@@ -1,4 +1,7 @@
+import astropy.units as u
 import numpy as np
+import pytest
+from astropy.coordinates import SkyCoord
 
 from pointings_search.pointing_table import PointingTable
 from pointings_search.pointing_tree import build_pointing_tree, PointingTree
@@ -200,3 +203,79 @@ def test_pointing_tree_prune():
     assert not tree.prune(np.array([0.97999963, 2.109975, 0.10]))  # within cone + pos_radius
     assert tree.prune(np.array([0.97999963, 2.109975, 0.11]))
     assert tree.prune(np.array([0.97999963, 2.109975, 0.12]))
+
+
+def test_build_pointing_tree():
+    data_dict = {
+        "obsid": [1, 2, 3, 4, 5, 6],
+        "ra": [219.63063, 219.63063, 219.63063, 219.63063, 25.51, 356.24],
+        "dec": [-15.45532, -16.45532, -15.7, -15.45532, 15.45532, -1.6305],
+        "obstime": [60253.1, 60253.1, 60253.1, 60353.5, 60253.1, 60253.1],
+    }
+    data = PointingTable.from_dict(data_dict)
+
+    with pytest.raises(KeyError) as exception_info:
+        _ = build_pointing_tree(data, max_points=2)
+    assert "append_earth_pos" in str(exception_info.value)
+    data.append_earth_pos()
+
+    with pytest.raises(KeyError) as exception_info:
+        _ = build_pointing_tree(data, max_points=2)
+    assert "preprocess_pointing_info" in str(exception_info.value)
+    data.preprocess_pointing_info()
+
+    tree = build_pointing_tree(data, max_points=10)
+    assert tree is not None
+    assert tree.pointings is not None
+    assert tree.pointings.shape[0] == 6
+    assert tree.pointings.shape[1] == 7
+
+    # Build a tree with FOV information.
+    data_dict["fov"] = [1.0] * 6
+    data = PointingTable.from_dict(data_dict)
+    data.append_earth_pos()
+    data.preprocess_pointing_info()
+
+    tree = build_pointing_tree(data, max_points=10)
+    assert tree is not None
+    assert tree.pointings is not None
+    assert tree.pointings.shape[0] == 6
+    assert tree.pointings.shape[1] == 8
+
+
+def test_pointing_tree_search_heliocentric_pointing():
+    # The first observation is effectively looking at the sun.
+    data_dict = {
+        "obsid": [1, 2, 3, 4, 5, 6],
+        "ra": [219.63063, 219.63063, 219.63063, 219.63063, 25.51, 356.24],
+        "dec": [-15.45532, -16.45532, -15.7, -15.45532, 15.45532, -1.6305],
+        "obstime": [60253.1, 60253.1, 60253.1, 60353.5, 60253.1, 60253.1],
+    }
+    data = PointingTable.from_dict(data_dict)
+    data.append_earth_pos()
+    data.preprocess_pointing_info()
+    tree = build_pointing_tree(data, max_points=2, min_width=1e-6)
+
+    # Check the pointings compared to the position of the sun.
+    sun_pos = SkyCoord(ra=0.0 * u.deg, dec=0.0 * u.deg, distance=0.0 * u.au)
+    match_table = tree.search_heliocentric_pointing(sun_pos, 0.9)
+    assert len(match_table) == 2
+    assert match_table[0, 0] == 0
+    assert match_table[1, 0] == 2
+
+    # Check the pointings 10 AU out from the sun.
+    other_pos = SkyCoord(ra=0.0 * u.deg, dec=0.0 * u.deg, distance=10.0 * u.au)
+    match_table = tree.search_heliocentric_pointing(other_pos, 0.9)
+    assert len(match_table) == 1
+    assert match_table[0, 0] == 5
+
+    # At 10,000 AU from the sun, the heliocentric point should approximately match the geocentric one
+    other_pos = SkyCoord(ra=219.63063 * u.deg, dec=-15.7 * u.deg, distance=10000.0 * u.au)
+    match_table = tree.search_heliocentric_pointing(other_pos, 0.01)
+    assert len(match_table) == 1
+    assert match_table[0, 0] == 2
+
+    other_pos = SkyCoord(ra=25.51 * u.deg, dec=15.45532 * u.deg, distance=10000.0 * u.au)
+    match_table = tree.search_heliocentric_pointing(other_pos, 0.01)
+    assert len(match_table) == 1
+    assert match_table[0, 0] == 4

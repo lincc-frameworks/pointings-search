@@ -340,8 +340,8 @@ class PointingTable:
 
     def search_heliocentric_xyz(self, point, fov=None):
         """Search for pointings that would overlap a given heliocentric
-        pointing and estimated distance. Allows a single field of view
-        or per pointing field of views.
+        point (x, y, z). Allows a single field of view or per pointing
+        field of views.
 
         Note
         ----
@@ -387,7 +387,8 @@ class PointingTable:
 
         Parameters
         ----------
-        point: a barycentric pointing with at least RA, dec, and distance.
+        point : `astropy.coordinates.SkyCoord`
+            a barycentric pointing with at least RA, dec, and distance.
         fov : `float` (optional)
             The field of view of the individual pointings. If None
             tries to retrieve from table.
