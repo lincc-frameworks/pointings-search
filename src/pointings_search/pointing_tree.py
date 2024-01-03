@@ -242,26 +242,27 @@ class PointingTree:
             return False
 
         # If the target point is in the positional sphere, do not prune.
-        dist_to_center = np.sqrt(np.sum(np.square(self.pos_center - target)))
+        dist_vect = self.pos_center - target
+        dist_to_center = np.sqrt(np.dot(dist_vect, dist_vect))
         if dist_to_center <= self.pos_radius:
             return False
 
         # Using a cone coming from the target point and centered on the *inverse* of
         # the node's central ray: X = P - alpha * view_center
         # compute how far along the ray is the closest point Q to the center.
-        dist_along_ray = np.dot(self.pos_center - target, -self.view_center)
+        dist_along_ray = np.dot(dist_vect, -self.view_center)
         if dist_along_ray < 0:
             return True
         pt_Q = target - dist_along_ray * self.view_center
 
         # If point Q falls within the node's positional sphere, don't prune.
-        dist_to_center = np.sqrt(np.sum(np.square(self.pos_center - pt_Q)))
-        if dist_to_center <= self.pos_radius:
+        dist_vect2 = pt_Q - self.pos_center
+        dist_to_center2 = np.sqrt(np.dot(dist_vect2, dist_vect2))
+        if dist_to_center2 <= self.pos_radius:
             return False
 
         # Compute the closest point C on the node's positional sphere to point Q.
-        vect = pt_Q - self.pos_center
-        unit_vect = vect / np.sqrt(np.dot(vect, vect))
+        unit_vect = dist_vect2 / np.sqrt(np.dot(dist_vect2, dist_vect2))
         pt_C = self.pos_center + self.pos_radius * unit_vect
 
         # Check whether the angle from the target point to point C is within the cone.
@@ -310,30 +311,26 @@ class PointingTree:
                 return r_res
             return np.append(r_res, l_res, axis=0)
 
-        # Compute the geocentric cartesian positions of the point.  Put all the data in
-        # CartesianRepresentation so we can use astropy's functions.
-        geo_pts = CartesianRepresentation(
-            (target[0] - self.pointings[:, 1]),
-            (target[1] - self.pointings[:, 2]),
-            (target[2] - self.pointings[:, 3]),
-        )
-        pointing_pts = CartesianRepresentation(
-            self.pointings[:, 4],
-            self.pointings[:, 5],
-            self.pointings[:, 6],
-        )
+        # Compute the geocentric cartesian positions of the point.
+        geo_pts = target - self.pointings[:, 1:4]
+
+        magnitudes = np.sqrt(np.sum(np.square(geo_pts), axis=1))
+
+        dot_products = np.sum(np.multiply(geo_pts, self.pointings[:, 4:7]), axis=1)
+
+        dist = np.arccos(np.divide(dot_products, magnitudes)) * (180.0 / np.pi)
 
         # Compute the angular distance from the dot product of the vectors. This can be slightly
         # inaccurate very close to 0, but is sufficient for pruning. Since we are using the vectors,
         # (instead of RA, dec) we do not need to worry about the poles.
-        norm = geo_pts.norm()
-        dot = geo_pts.dot(pointing_pts)
-        dist = np.arccos(dot / norm).to(u.deg)
+        # norm = geo_pts.norm()
+        # dot = geo_pts.dot(pointing_pts)
+        # dist = np.arccos(dot / norm).to(u.deg)
 
         if fov > 0.0:
-            res = self.pointings[dist.value <= fov, :]
+            res = self.pointings[dist <= fov, :]
         elif self.pointings.shape[1] == 8:
-            res = self.pointings[dist.value <= self.pointings[:, 7], :]
+            res = self.pointings[dist <= self.pointings[:, 7], :]
         else:
             raise ValueError("No field of view provided.")
 
