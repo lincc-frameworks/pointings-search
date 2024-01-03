@@ -243,6 +243,48 @@ def test_build_pointing_tree():
     assert tree.pointings.shape[1] == 8
 
 
+def test_pointing_tree_search_heliocentric_xyz():
+    # Data at two different positions with 6 pointings each.
+    # One pointing has a wide FOV.
+    data = np.array(
+        [
+            [0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 2.0],
+            [1, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 2.0],
+            [2, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 2.0],
+            [3, 1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 2.0],
+            [4, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0],
+            [5, 1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 2.0],
+            [6, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 2.0],
+            [7, 0.0, 1.0, 0.0, -1.0, 0.0, 0.0, 30.0],
+            [8, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 2.0],
+            [9, 0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 2.0],
+            [10, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 2.0],
+            [11, 0.0, 1.0, 0.0, 0.0, 0.0, -1.0, 2.0],
+        ]
+    )
+    tree = PointingTree(data)
+    tree.recursive_split_dist(effective_dist=2.0, max_points=3)
+
+    # Basic tests
+    for i in range(12):
+        target = data[i, 1:4] + 5.0 * data[i, 4:7]
+
+        # Forced FOV = single matchs
+        matches = tree.search_heliocentric_xyz(target, fov=0.1)
+        assert len(matches) == 1
+        assert matches[0, 0] == i
+
+        # Prepopulated FOV = some doubles
+        matches = tree.search_heliocentric_xyz(target)
+        if i == 1:
+            assert len(matches) == 2
+            assert matches[0, 0] == 7
+            assert matches[1, 0] == 1
+        else:
+            assert len(matches) == 1
+            assert matches[0, 0] == i
+
+
 def test_pointing_tree_search_heliocentric_pointing():
     # The first observation is effectively looking at the sun.
     data_dict = {

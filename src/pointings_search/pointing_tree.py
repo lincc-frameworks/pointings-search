@@ -333,10 +333,10 @@ class PointingTree:
         if fov > 0.0:
             res = self.pointings[dist.value <= fov, :]
         elif self.pointings.shape[1] == 8:
-            res = self.pointings[dist.value <= pointings[:, 7], :]
+            res = self.pointings[dist.value <= self.pointings[:, 7], :]
         else:
             raise ValueError("No field of view provided.")
-            
+
         if stats is not None:
             stats.points_checked += 1
 
@@ -399,7 +399,7 @@ def build_pointing_tree(data, effective_dist=-1.0, max_points=10, min_width=1e-6
         raise KeyError("PointingTable missing Earth data. Call append_earth_pos()")
     if "unit_vec_x" not in data.pointings.columns:
         raise KeyError("PointingTable missing pointing data. Call preprocess_pointing_info()")
-    
+
     # Create the numpy array of the data for the tree.
     if "fov" in data.pointings.columns:
         arr_data = np.array(
@@ -426,7 +426,6 @@ def build_pointing_tree(data, effective_dist=-1.0, max_points=10, min_width=1e-6
                 data.pointings["unit_vec_z"].value,
             ]
         )
-
 
     # Allocate the tree root.
     root = PointingTree(arr_data.T)
