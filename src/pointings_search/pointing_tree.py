@@ -311,21 +311,17 @@ class PointingTree:
                 return r_res
             return np.append(r_res, l_res, axis=0)
 
-        # Compute the geocentric cartesian positions of the point.
+        # Compute the geocentric cartesian positions of the point and their (scaled) dot products
+        # with the viewing vectors.
         geo_pts = target - self.pointings[:, 1:4]
-
-        magnitudes = np.sqrt(np.sum(np.square(geo_pts), axis=1))
-
         dot_products = np.sum(np.multiply(geo_pts, self.pointings[:, 4:7]), axis=1)
+        magnitudes = np.sqrt(np.sum(np.square(geo_pts), axis=1))
+        scaled = np.divide(dot_products, magnitudes)
 
-        dist = np.arccos(np.divide(dot_products, magnitudes)) * (180.0 / np.pi)
-
-        # Compute the angular distance from the dot product of the vectors. This can be slightly
-        # inaccurate very close to 0, but is sufficient for pruning. Since we are using the vectors,
-        # (instead of RA, dec) we do not need to worry about the poles.
-        # norm = geo_pts.norm()
-        # dot = geo_pts.dot(pointing_pts)
-        # dist = np.arccos(dot / norm).to(u.deg)
+        # Clip the scaled dot_products to 1 to avoid slight errors that can arise due
+        # to numerical precision.
+        scaled[scaled > 1.0] = 1.0
+        dist = np.arccos(scaled) * (180.0 / np.pi)
 
         if fov > 0.0:
             res = self.pointings[dist <= fov, :]

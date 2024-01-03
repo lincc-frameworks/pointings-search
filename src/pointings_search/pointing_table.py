@@ -335,7 +335,12 @@ class PointingTable:
             ]
         ).T
         dot_products = np.sum(np.multiply(geo_pts, pointing_pts), axis=1)
-        dist = np.arccos(np.divide(dot_products, magnitudes)) * (180.0 / np.pi)
+        scaled = np.divide(dot_products, magnitudes)
+
+        # Clip the scaled dot_products to 1 to avoid slight errors that can arise due
+        # to numerical precision.
+        scaled[scaled > 1.0] = 1.0
+        dist = np.arccos(scaled) * (180.0 / np.pi)
 
         return dist
 
