@@ -280,12 +280,12 @@ def test_angular_dist_3d_heliocentric():
     # Check the pointings compared to the position of the sun. Allow 0.5 degrees
     # error because we are comparing the sun's position and the barycenter's position.
     ang_dist = data.angular_dist_3d_heliocentric([0.0, 0.0, 0.0])
-    assert np.allclose(ang_dist.value, [0.0, 1.0, 0.0], atol=0.5)
+    assert np.allclose(ang_dist, [0.0, 1.0, 0.0], atol=0.5)
 
     # Check an object that is 1 AU from the sun along the x-axis
     # Answer computed manually from sunpos
     ang_dist = data.angular_dist_3d_heliocentric([1.0, 0.0, 0.0])
-    assert np.allclose(ang_dist.value, [70.27581206, 70.5852368, 64.81695263], atol=0.5)
+    assert np.allclose(ang_dist, [70.27581206, 70.5852368, 64.81695263], atol=0.5)
 
     # Check data for Mars
     mars_pos_ang = get_body("mars", Time(60253.1, format="mjd")).transform_to("icrs")
@@ -300,7 +300,7 @@ def test_angular_dist_3d_heliocentric():
     # Use the true barycentric position as queried by JPL's Horizons as the offset.
     mars_helio = [-0.945570054569104, -1.127108800070284, -0.4913967118719473]
     ang_dist = data2.angular_dist_3d_heliocentric(mars_helio)
-    assert np.allclose(ang_dist.value, [0.0], atol=0.2)
+    assert np.allclose(ang_dist, [0.0], atol=0.2)
 
     # Position the fake object relative (+1.0, -0.2, +0.5) relative to the Earth.
     earth_pos = get_body_barycentric("earth", Time(60153.2, format="mjd"))
@@ -319,7 +319,7 @@ def test_angular_dist_3d_heliocentric():
     }
     data3 = PointingTable.from_dict(data_dict3)
     ang_dist = data3.angular_dist_3d_heliocentric(other_pos)
-    assert np.allclose(ang_dist.value, [0.0], atol=0.01)
+    assert np.allclose(ang_dist, [0.0], atol=0.01)
 
 
 def test_search_heliocentric_pointing():
