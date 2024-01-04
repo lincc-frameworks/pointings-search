@@ -9,7 +9,7 @@ from astropy import units as u
 from pointings_search.pointing_table import PointingTable
 
 
-class SearchStats:
+class PointingTreeSearchStats:
     """A data class to store the search statistics
 
     Attributes
@@ -26,6 +26,190 @@ class SearchStats:
 
 
 class PointingTree:
+    """A PointingTree is a kd-tree over data with data with the following
+    columns:
+        0: index in original table
+        1: earth_vec_x
+        2: earth_vec_y
+        3: earth_vec_z
+        4: unit_vec_x
+        5: unit_vec_y
+        6: unit_vec_z
+        7: field of view [optional]
+
+    Attributes
+    ----------
+    root : `PointingTreeNode`
+        The root of the tree.
+    """
+
+    def __init__(self, root):
+        self.root = root
+
+    @classmethod
+    def from_numpy_array(cls, arr_data, effective_dist=-1.0, max_points=10, min_width=1e-6):
+        """Create a PointingTree from a numpy array with the following columns:
+            0: index in original table
+            1: earth_vec_x
+            2: earth_vec_y
+            3: earth_vec_z
+            4: unit_vec_x
+            5: unit_vec_y
+            6: unit_vec_z
+            7: field of view [optional]
+
+        Parameters
+        ----------
+        data : `numpy.ndarray`
+            The matrix of pointings over which to search.
+        effective_dist : `float`
+            The effective distance to use. For any value < 0.0 use the weighted dimension splitting.
+            For 0.0 use the unweighted dimensional splitting.
+        max_points : `int`
+            The maximum number of points to include in a leaf node.
+        min_width : `float`
+            The minimal normalized width in each dimension.
+
+        Returns
+        -------
+        root : `PointingTree`
+            The root node of the resulting pointing tree.
+
+        Raises
+        ------
+        KeyError if either the Earth's location data or the pointing unit vector data
+        is missing from the PointingTable.
+        """
+        # Allocate the tree root.
+        root = PointingTreeNode(arr_data)
+
+        # Compute the normalization factors and split the tree.
+        if effective_dist <= 0.0:
+            if effective_dist == 0.0:
+                max_widths = np.array([1.0] * 6)
+            else:
+                max_widths = root.high_bnd[1:7] - root.low_bnd[1:7]
+            root.recursive_split_kd(max_widths, max_points, min_width)
+        else:
+            root.recursive_split_dist(effective_dist, max_points, min_width)
+
+        return PointingTree(root)
+
+    @classmethod
+    def from_pointing_table(cls, data, effective_dist=-1.0, max_points=10, min_width=1e-6):
+        """Create a PointingTree from a PointingTable
+
+        Parameters
+        ----------
+        data : `PointingTable`
+            The table of pointings over which to search.
+        effective_dist : `float`
+            The effective distance to use. For any value < 0.0 use the weighted dimension splitting.
+            For 0.0 use the unweighted dimensional splitting.
+        max_points : `int`
+            The maximum number of points to include in a leaf node.
+        min_width : `float`
+            The minimal normalized width in each dimension.
+
+        Returns
+        -------
+        root : `PointingTree`
+            The root node of the resulting pointing tree.
+
+        Raises
+        ------
+        KeyError if either the Earth's location data or the pointing unit vector data
+        is missing from the PointingTable.
+        """
+        if "earth_vec_x" not in data.pointings.columns:
+            raise KeyError("PointingTable missing Earth data. Call append_earth_pos()")
+        if "unit_vec_x" not in data.pointings.columns:
+            raise KeyError("PointingTable missing pointing data. Call preprocess_pointing_info()")
+
+        # Create the numpy array of the data for the tree.
+        if "fov" in data.pointings.columns:
+            arr_data = np.array(
+                [
+                    np.arange(0, len(data)),
+                    data.pointings["earth_vec_x"].value,
+                    data.pointings["earth_vec_y"].value,
+                    data.pointings["earth_vec_z"].value,
+                    data.pointings["unit_vec_x"].value,
+                    data.pointings["unit_vec_y"].value,
+                    data.pointings["unit_vec_z"].value,
+                    data.pointings["fov"].value,
+                ]
+            )
+        else:
+            arr_data = np.array(
+                [
+                    np.arange(0, len(data)),
+                    data.pointings["earth_vec_x"].value,
+                    data.pointings["earth_vec_y"].value,
+                    data.pointings["earth_vec_z"].value,
+                    data.pointings["unit_vec_x"].value,
+                    data.pointings["unit_vec_y"].value,
+                    data.pointings["unit_vec_z"].value,
+                ]
+            )
+
+        # Create the tree from the numpy array.
+        return cls.from_numpy_array(arr_data.T)
+
+    def search_heliocentric_xyz(self, target, fov=0.0, stats=None):
+        """Search for pointings that would overlap a given heliocentric
+        point (x, y, z). Allows a single field of view or per pointing
+        field of views.
+
+        Parameters
+        ----------
+        point : tuple, list, or array
+            The point represented as (x, y, z) on which to compute the distances.
+        fov : `float` (optional)
+            The field of view of the individual pointings. If None
+            tries to retrieve from table.
+        stats : `SearchStats` (optional)
+            A data structure for performance statistics on the search.
+
+        Returns
+        -------
+        An astropy table with information for the matching pointings.
+
+        Raises
+        ------
+        ValueError if no field of view is provided.
+        """
+        return self.root.search_heliocentric_xyz(target, fov, stats)
+
+    def search_heliocentric_pointing(self, point, fov=0.0, stats=None):
+        """Search for pointings that would overlap a given heliocentric
+        pointing and estimated distance. Allows a single field of view
+        or per pointing field of views.
+
+        Parameters
+        ----------
+        point : `astropy.coordinates.SkyCoord`
+            a barycentric pointing with at least RA, dec, and distance.
+        fov : `float` (optional)
+            The field of view of the individual pointings. If None
+            tries to retrieve from table.
+        stats : `SearchStats` (optional)
+            A data structure for performance statistics on the search.
+
+        Returns
+        -------
+        An astropy table with information for the matching pointings.
+
+        Raises
+        ------
+        ValueError if no field of view is provided.
+        """
+        cart_pt = point.cartesian
+        helio_pt = [cart_pt.x.value, cart_pt.y.value, cart_pt.z.value]
+        return self.root.search_heliocentric_xyz(helio_pt, fov, stats)
+
+
+class PointingTreeNode:
     """A PointingTree is a kd-tree over data with data with the following
     columns:
         0: index in original table
@@ -157,11 +341,11 @@ class PointingTree:
         self.pointings = None
 
         # Create a right child.
-        self.right_child = PointingTree(right_pointings)
+        self.right_child = PointingTreeNode(right_pointings)
         self.right_child.recursive_split_dist(effective_dist, max_points, min_width)
 
         # Create a left child.
-        self.left_child = PointingTree(left_pointings)
+        self.left_child = PointingTreeNode(left_pointings)
         self.left_child.recursive_split_dist(effective_dist, max_points, min_width)
 
         return True
@@ -210,11 +394,11 @@ class PointingTree:
         self.pointings = None
 
         # Create a right child.
-        self.right_child = PointingTree(right_pointings)
+        self.right_child = PointingTreeNode(right_pointings)
         self.right_child.recursive_split_kd(max_widths, max_points, min_width)
 
         # Create a left child.
-        self.left_child = PointingTree(left_pointings)
+        self.left_child = PointingTreeNode(left_pointings)
         self.left_child.recursive_split_kd(max_widths, max_points, min_width)
 
         return True
@@ -361,76 +545,3 @@ class PointingTree:
         cart_pt = point.cartesian
         helio_pt = [cart_pt.x.value, cart_pt.y.value, cart_pt.z.value]
         return self.search_heliocentric_xyz(helio_pt, fov, stats)
-
-
-def build_pointing_tree(data, effective_dist=-1.0, max_points=10, min_width=1e-6):
-    """Create a PointingTree from a PointingTable
-
-    Parameters
-    ----------
-    data : `PointingTable`
-        The table of pointings over which to search.
-    effective_dist : `float`
-        The effective distance to use. For any value < 0.0 use the weighted dimension splitting.
-        For 0.0 use the unweighted dimensional splitting.
-    max_points : `int`
-        The maximum number of points to include in a leaf node.
-    min_width : `float`
-        The minimal normalized width in each dimension.
-
-    Returns
-    -------
-    root : `PointingTree`
-        The root node of the resulting pointing tree.
-
-    Raises
-    ------
-    KeyError if either the Earth's location data or the pointing unit vector data
-    is missing from the PointingTable.
-    """
-    if "earth_vec_x" not in data.pointings.columns:
-        raise KeyError("PointingTable missing Earth data. Call append_earth_pos()")
-    if "unit_vec_x" not in data.pointings.columns:
-        raise KeyError("PointingTable missing pointing data. Call preprocess_pointing_info()")
-
-    # Create the numpy array of the data for the tree.
-    if "fov" in data.pointings.columns:
-        arr_data = np.array(
-            [
-                np.arange(0, len(data)),
-                data.pointings["earth_vec_x"].value,
-                data.pointings["earth_vec_y"].value,
-                data.pointings["earth_vec_z"].value,
-                data.pointings["unit_vec_x"].value,
-                data.pointings["unit_vec_y"].value,
-                data.pointings["unit_vec_z"].value,
-                data.pointings["fov"].value,
-            ]
-        )
-    else:
-        arr_data = np.array(
-            [
-                np.arange(0, len(data)),
-                data.pointings["earth_vec_x"].value,
-                data.pointings["earth_vec_y"].value,
-                data.pointings["earth_vec_z"].value,
-                data.pointings["unit_vec_x"].value,
-                data.pointings["unit_vec_y"].value,
-                data.pointings["unit_vec_z"].value,
-            ]
-        )
-
-    # Allocate the tree root.
-    root = PointingTree(arr_data.T)
-
-    # Compute the normalization factors and split the tree.
-    if effective_dist <= 0.0:
-        if effective_dist == 0.0:
-            max_widths = np.array([1.0] * 6)
-        else:
-            max_widths = root.high_bnd[1:7] - root.low_bnd[1:7]
-        root.recursive_split_kd(max_widths, max_points, min_width)
-    else:
-        root.recursive_split_dist(effective_dist, max_points, min_width)
-
-    return root

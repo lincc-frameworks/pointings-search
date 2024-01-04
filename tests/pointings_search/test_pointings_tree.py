@@ -4,7 +4,7 @@ import pytest
 from astropy.coordinates import SkyCoord
 
 from pointings_search.pointing_table import PointingTable
-from pointings_search.pointing_tree import build_pointing_tree, PointingTree
+from pointings_search.pointing_tree import PointingTree, PointingTreeNode
 
 
 def test_build_pointing_tree_node():
@@ -16,23 +16,88 @@ def test_build_pointing_tree_node():
             [3, 1.0, 0.04, -0.01, 0.5, 0.8, 0.0],
         ]
     )
-    tree = PointingTree(data)
+    tree_node = PointingTreeNode(data)
 
-    assert tree.pointings is not None
-    assert tree.num_points == 4
-    assert tree.left_child is None
-    assert tree.right_child is None
+    assert tree_node.pointings is not None
+    assert tree_node.num_points == 4
+    assert tree_node.left_child is None
+    assert tree_node.right_child is None
 
-    assert np.allclose(tree.low_bnd, [0, 0.98, 0.0, -0.01, 0.0, 0.0, 0.0])
-    assert np.allclose(tree.high_bnd, [3, 1.0, 0.04, 0.02, 1.0, 1.0, 0.0])
+    assert np.allclose(tree_node.low_bnd, [0, 0.98, 0.0, -0.01, 0.0, 0.0, 0.0])
+    assert np.allclose(tree_node.high_bnd, [3, 1.0, 0.04, 0.02, 1.0, 1.0, 0.0])
 
-    assert np.allclose(tree.pos_center, [0.99, 0.02, 0.005])
-    assert np.allclose(tree.view_center, [0.70710678, 0.70710678, 0.0])
-    assert np.isclose(tree.pos_radius, 0.026925824035672525)
-    assert np.isclose(tree.view_radius, 45.0)
+    assert np.allclose(tree_node.pos_center, [0.99, 0.02, 0.005])
+    assert np.allclose(tree_node.view_center, [0.70710678, 0.70710678, 0.0])
+    assert np.isclose(tree_node.pos_radius, 0.026925824035672525)
+    assert np.isclose(tree_node.view_radius, 45.0)
 
 
-def test_pointing_tree_recursive_split_kd():
+def test_build_pointing_tree_numpy():
+    data = np.array(
+        [
+            [0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            [1, 0.99, 0.01, -0.01, 1.0, 0.0, 0.0],
+            [2, 0.98, 0.04, 0.02, 0.0, 1.0, 0.0],
+            [3, 1.0, 0.04, -0.01, 0.5, 0.8, 0.0],
+        ]
+    )
+    tree = PointingTree.from_numpy_array(data)
+
+    assert tree.root.pointings is not None
+    assert tree.root.num_points == 4
+    assert tree.root.left_child is None
+    assert tree.root.right_child is None
+
+    assert np.allclose(tree.root.low_bnd, [0, 0.98, 0.0, -0.01, 0.0, 0.0, 0.0])
+    assert np.allclose(tree.root.high_bnd, [3, 1.0, 0.04, 0.02, 1.0, 1.0, 0.0])
+
+    assert np.allclose(tree.root.pos_center, [0.99, 0.02, 0.005])
+    assert np.allclose(tree.root.view_center, [0.70710678, 0.70710678, 0.0])
+    assert np.isclose(tree.root.pos_radius, 0.026925824035672525)
+    assert np.isclose(tree.root.view_radius, 45.0)
+
+
+def test_build_pointing_tree_pointing_table():
+    data_dict = {
+        "obsid": [1, 2, 3, 4, 5, 6],
+        "ra": [219.63063, 219.63063, 219.63063, 219.63063, 25.51, 356.24],
+        "dec": [-15.45532, -16.45532, -15.7, -15.45532, 15.45532, -1.6305],
+        "obstime": [60253.1, 60253.1, 60253.1, 60353.5, 60253.1, 60253.1],
+    }
+    data = PointingTable.from_dict(data_dict)
+
+    with pytest.raises(KeyError) as exception_info:
+        _ = PointingTree.from_pointing_table(data, max_points=2)
+    assert "append_earth_pos" in str(exception_info.value)
+    data.append_earth_pos()
+
+    with pytest.raises(KeyError) as exception_info:
+        _ = PointingTree.from_pointing_table(data, max_points=2)
+    assert "preprocess_pointing_info" in str(exception_info.value)
+    data.preprocess_pointing_info()
+
+    tree = PointingTree.from_pointing_table(data, max_points=10)
+    assert tree is not None
+    assert tree.root is not None
+    assert tree.root.pointings is not None
+    assert tree.root.pointings.shape[0] == 6
+    assert tree.root.pointings.shape[1] == 7
+
+    # Build a tree with FOV information.
+    data_dict["fov"] = [1.0] * 6
+    data = PointingTable.from_dict(data_dict)
+    data.append_earth_pos()
+    data.preprocess_pointing_info()
+
+    tree = PointingTree.from_pointing_table(data, max_points=10)
+    assert tree is not None
+    assert tree.root is not None
+    assert tree.root.pointings is not None
+    assert tree.root.pointings.shape[0] == 6
+    assert tree.root.pointings.shape[1] == 8
+
+
+def test_pointing_tree_node_recursive_split_kd():
     equal_widths = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
     ang_widths = np.array([100.0, 100.0, 100.0, 0.1, 0.1, 0.1])
 
@@ -46,7 +111,7 @@ def test_pointing_tree_recursive_split_kd():
             [5, 0.5, 0.3, 0.2, 0.68041382, 0.68041382, 0.27216553, 0.5],
         ]
     )
-    tree1 = PointingTree(data)
+    tree1 = PointingTreeNode(data)
     assert tree1.num_points == 6
 
     # Check the stop pruning conditions
@@ -75,7 +140,7 @@ def test_pointing_tree_recursive_split_kd():
     assert not tree1.recursive_split_kd(equal_widths, max_points=4)
 
     # Split the node on pointing this time.
-    tree2 = PointingTree(data)
+    tree2 = PointingTreeNode(data)
     assert tree2.num_points == 6
     assert tree2.recursive_split_kd(ang_widths, max_points=4)
     assert tree2.pointings is None
@@ -95,7 +160,7 @@ def test_pointing_tree_recursive_split_kd():
         assert tree2.right_child.pointings[i, 6] > 0.27716553
 
 
-def test_pointing_tree_recursive_split_dist():
+def test_pointing_tree_node_recursive_split_dist():
     # Data with a bunch of increasing y-values and interleaved pointings
     data = np.array(
         [
@@ -109,7 +174,7 @@ def test_pointing_tree_recursive_split_dist():
     )
 
     # Check the stop pruning conditions
-    tree1 = PointingTree(data)
+    tree1 = PointingTreeNode(data)
     assert tree1.num_points == 6
     assert not tree1.recursive_split_dist(effective_dist=1.0, max_points=10)
     assert not tree1.recursive_split_dist(effective_dist=1.0, max_points=2, min_width=10.0)
@@ -136,7 +201,7 @@ def test_pointing_tree_recursive_split_dist():
 
     # Create a new node and use a large maximum distance, which will prioritize
     # the viewing angle.
-    tree2 = PointingTree(data)
+    tree2 = PointingTreeNode(data)
     assert tree2.recursive_split_dist(effective_dist=100.0, max_points=4)
     assert tree2.pointings is None
     assert tree2.num_points == 6
@@ -153,7 +218,7 @@ def test_pointing_tree_recursive_split_dist():
         assert tree2.right_child.pointings[i, 6] < 0.25
 
 
-def test_pointing_tree_prune():
+def test_pointing_tree_node_prune():
     # Two pointings close in position with pointings that differ by ~0.57 degrees.
     data = np.array(
         [
@@ -161,7 +226,7 @@ def test_pointing_tree_prune():
             [1, 0.96, 0.11, 0.05, 0.0099995, 0.99995, 0.0, 1.0],
         ]
     )
-    tree = PointingTree(data)
+    tree = PointingTreeNode(data)
     center = tree.pos_center
 
     # Don't prune points in the node positional sphere.
@@ -205,45 +270,7 @@ def test_pointing_tree_prune():
     assert tree.prune(np.array([0.97999963, 2.109975, 0.12]))
 
 
-def test_build_pointing_tree():
-    data_dict = {
-        "obsid": [1, 2, 3, 4, 5, 6],
-        "ra": [219.63063, 219.63063, 219.63063, 219.63063, 25.51, 356.24],
-        "dec": [-15.45532, -16.45532, -15.7, -15.45532, 15.45532, -1.6305],
-        "obstime": [60253.1, 60253.1, 60253.1, 60353.5, 60253.1, 60253.1],
-    }
-    data = PointingTable.from_dict(data_dict)
-
-    with pytest.raises(KeyError) as exception_info:
-        _ = build_pointing_tree(data, max_points=2)
-    assert "append_earth_pos" in str(exception_info.value)
-    data.append_earth_pos()
-
-    with pytest.raises(KeyError) as exception_info:
-        _ = build_pointing_tree(data, max_points=2)
-    assert "preprocess_pointing_info" in str(exception_info.value)
-    data.preprocess_pointing_info()
-
-    tree = build_pointing_tree(data, max_points=10)
-    assert tree is not None
-    assert tree.pointings is not None
-    assert tree.pointings.shape[0] == 6
-    assert tree.pointings.shape[1] == 7
-
-    # Build a tree with FOV information.
-    data_dict["fov"] = [1.0] * 6
-    data = PointingTable.from_dict(data_dict)
-    data.append_earth_pos()
-    data.preprocess_pointing_info()
-
-    tree = build_pointing_tree(data, max_points=10)
-    assert tree is not None
-    assert tree.pointings is not None
-    assert tree.pointings.shape[0] == 6
-    assert tree.pointings.shape[1] == 8
-
-
-def test_pointing_tree_search_heliocentric_xyz():
+def test_pointing_tree_node_search_heliocentric_xyz():
     # Data at two different positions with 6 pointings each.
     # One pointing has a wide FOV.
     data = np.array(
@@ -262,7 +289,7 @@ def test_pointing_tree_search_heliocentric_xyz():
             [11, 0.0, 1.0, 0.0, 0.0, 0.0, -1.0, 2.0],
         ]
     )
-    tree = PointingTree(data)
+    tree = PointingTreeNode(data)
     tree.recursive_split_dist(effective_dist=2.0, max_points=3)
 
     # Basic tests
@@ -296,7 +323,7 @@ def test_pointing_tree_search_heliocentric_pointing():
     data = PointingTable.from_dict(data_dict)
     data.append_earth_pos()
     data.preprocess_pointing_info()
-    tree = build_pointing_tree(data, max_points=2, min_width=1e-6)
+    tree = PointingTree.from_pointing_table(data, max_points=2, min_width=1e-6)
 
     # Check the pointings compared to the position of the sun.
     sun_pos = SkyCoord(ra=0.0 * u.deg, dec=0.0 * u.deg, distance=0.0 * u.au)
