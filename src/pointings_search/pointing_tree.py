@@ -43,6 +43,10 @@ class PointingTree:
         self.search_nodes_checked = 0
         self.search_points_checked = 0
 
+    def count_nodes(self):
+        """Count the number of nodes in the tree"""
+        return self.root.subtree_count()
+
     @classmethod
     def from_numpy_array(cls, arr_data, effective_dist=-1.0, max_points=10, min_width=1e-6):
         """Create a PointingTree from a numpy array with the following columns:
@@ -296,6 +300,12 @@ class PointingTreeNode:
         distances += pointings[:, 7]
         self.view_radius = np.max(distances)
 
+    def subtree_count(self):
+        """Count the number of nodes (including this one) in the current subtree."""
+        if self.pointings is not None:
+            return 1
+        return self.left_child.subtree_count() + self.right_child.subtree_count() + 1
+
     def recursive_split_dist(self, effective_dist=1.0, max_points=10, min_width=1e-6):
         """Split the node to break up the amount of space covered. Project the points
         out to an effective_distance and use that for partitioning.
@@ -321,15 +331,17 @@ class PointingTreeNode:
         if self.num_points <= max_points:
             return False
 
+        # Compute the widest dimension and check that stopping criteria.
+        if np.max(self.high_bnd[1:7] - self.low_bnd[1:7]) < min_width:
+            return False
+
         # Project the points out to their effective distances and compute the resulting bounding box.
         projected = self.pointings[:, 1:4] + effective_dist * self.pointings[:, 4:7]
         prj_low = np.min(projected, axis=0)
         prj_high = np.max(projected, axis=0)
 
-        # Compute the widest dimension and check that stopping criteria.
+        # Compute the widest dimension in projected space.
         widths = prj_high - prj_low
-        if np.max(widths) < min_width:
-            return False
 
         # Compute the split.
         self.split_col = np.argmax(widths)
@@ -430,8 +442,8 @@ class PointingTreeNode:
 
         # If the target point is in the positional sphere, do not prune.
         dist_vect = self.pos_center - target
-        dist_to_center = np.sqrt(np.dot(dist_vect, dist_vect))
-        if dist_to_center <= self.pos_radius:
+        dist_target_to_center = np.sqrt(np.dot(dist_vect, dist_vect))
+        if dist_target_to_center <= self.pos_radius:
             return False
 
         # Using a cone coming from the target point and centered on the *inverse* of
@@ -444,19 +456,14 @@ class PointingTreeNode:
 
         # If point Q falls within the node's positional sphere, don't prune.
         dist_vect2 = pt_Q - self.pos_center
-        dist_to_center2 = np.sqrt(np.dot(dist_vect2, dist_vect2))
-        if dist_to_center2 <= self.pos_radius:
+        dist_Q_to_center = np.sqrt(np.dot(dist_vect2, dist_vect2))
+        if dist_Q_to_center <= self.pos_radius:
             return False
 
-        # Compute the closest point C on the node's positional sphere to point Q.
-        unit_vect = dist_vect2 / dist_to_center2
-        pt_C = self.pos_center + self.pos_radius * unit_vect
-
-        # Check whether the angle from the target point to point C is within the cone.
-        TC_vect = pt_C - target
-        unit_TC = TC_vect / np.sqrt(np.dot(TC_vect, TC_vect))
-        ang_dist = np.arccos(np.dot(unit_TC, -self.view_center)) * 180.0 / np.pi
-        return ang_dist > self.view_radius + extra_fov
+        # Compute the width of the cone at Q and see if it intersects the sphere.
+        total_angle = (self.view_radius + extra_fov) * (np.pi / 180.0)
+        cone_width = dist_along_ray * np.tan(total_angle)
+        return dist_Q_to_center - cone_width > self.pos_radius 
 
     def find_leaf_matches(self, target, extra_fov=0.0):
         """Return a list of points in a leaf node that match the search query.
