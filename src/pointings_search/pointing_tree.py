@@ -449,7 +449,7 @@ class PointingTreeNode:
             return False
 
         # Compute the closest point C on the node's positional sphere to point Q.
-        unit_vect = dist_vect2 / np.sqrt(np.dot(dist_vect2, dist_vect2))
+        unit_vect = dist_vect2 / dist_to_center2
         pt_C = self.pos_center + self.pos_radius * unit_vect
 
         # Check whether the angle from the target point to point C is within the cone.
