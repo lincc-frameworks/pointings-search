@@ -151,6 +151,26 @@ def test_pointing_tree_node_recursive_split_kd():
     # We cannot split a middle node again
     assert not tree1.recursive_split_kd(max_points=4)
 
+    # Split the node on pointing this time.
+    tree2 = PointingTreeNode(data)
+    assert tree2.num_points == 6
+    assert tree2.recursive_split_kd(max_points=4, angle_weight=100.0)
+    assert tree2.pointings is None
+    assert tree2.num_points == 6
+    assert tree2.split_col == 6
+    assert np.isclose(tree2.split_value, 0.27716553)
+
+    # Check the children
+    assert tree2.left_child is not None
+    assert tree2.left_child.num_points == 3
+    for i in range(3):
+        assert tree2.left_child.pointings[i, 6] < 0.27716553
+
+    assert tree2.right_child is not None
+    assert tree2.right_child.num_points == 3
+    for i in range(3):
+        assert tree2.right_child.pointings[i, 6] > 0.27716553
+
 
 def test_pointing_tree_node_prune():
     # Two pointings close in position with pointings that differ by ~0.57 degrees.

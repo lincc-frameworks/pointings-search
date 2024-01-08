@@ -49,7 +49,7 @@ class PointingTree:
         return self.root.subtree_count()
 
     @classmethod
-    def from_numpy_array(cls, arr_data, max_points=10, min_width=1e-6):
+    def from_numpy_array(cls, arr_data, max_points=10, min_width=1e-6, angle_weight=1.0):
         """Create a PointingTree from a numpy array with the following columns:
             0: index in original table
             1: earth_vec_x
@@ -68,6 +68,9 @@ class PointingTree:
             The maximum number of points to include in a leaf node.
         min_width : `float`
             The minimal normalized width in each dimension.
+        angle_weight : `float`
+            The relative weight of the angle (unit vector) dimensions
+            compared to the spatial dimensions. Used for tuning the splits.
 
         Returns
         -------
@@ -81,11 +84,11 @@ class PointingTree:
         """
         # Allocate and then split the tree root.
         root = PointingTreeNode(arr_data)
-        root.recursive_split_kd(max_points, min_width)
+        root.recursive_split_kd(max_points, min_width, angle_weight)
         return PointingTree(root)
 
     @classmethod
-    def from_pointing_table(cls, data, max_points=10, min_width=1e-6, global_fov=0.0):
+    def from_pointing_table(cls, data, max_points=10, min_width=1e-6, angle_weight=1.0, global_fov=0.0):
         """Create a PointingTree from a PointingTable
 
         Parameters
@@ -96,9 +99,12 @@ class PointingTree:
             The maximum number of points to include in a leaf node.
         min_width : `float`
             The minimal normalized width in each dimension.
+        angle_weight : `float`
+            The relative weight of the angle (unit vector) dimensions
+            compared to the spatial dimensions. Used for tuning the splits.
         global_fov : `float`
-            A global field of view to use if no FOV column is provided. Defaults to 0.0
-            which requires an exact match.
+            A global field of view (in degrees) to use if no FOV column is provided.
+            Defaults to 0.0 which requires an exact match.
 
         Returns
         -------
@@ -136,7 +142,7 @@ class PointingTree:
         )
 
         # Create the tree from the numpy array.
-        return cls.from_numpy_array(arr_data.T, max_points, min_width)
+        return cls.from_numpy_array(arr_data.T, max_points, min_width, angle_weight)
 
     def search_heliocentric_xyz(self, target, extra_fov=0.0):
         """Search for pointings that would overlap a given heliocentric
@@ -291,7 +297,7 @@ class PointingTreeNode:
             return 1
         return self.left_child.subtree_count() + self.right_child.subtree_count() + 1
 
-    def recursive_split_kd(self, max_points=10, min_width=1e-6):
+    def recursive_split_kd(self, max_points=10, min_width=1e-6, angle_weight=1.0):
         """Split the node along the 'widest' spatial column (ignoring the index column).
         We recursively split the node until either it has fewer than max_points or
         is smaller than min_width in each dimension.
@@ -302,6 +308,9 @@ class PointingTreeNode:
             The maximum number of points to include in a leaf node.
         min_width : `float`
             The minimal normalized width in each dimension.
+        angle_weight : `float`
+            The relative weight of the angle (unit vector) dimensions
+            compared to the spatial dimensions. Used for tuning the splits.
 
         Returns
         -------
@@ -321,6 +330,7 @@ class PointingTreeNode:
             return False
 
         # Compute the split.
+        widths[3:6] *= angle_weight
         self.split_col = np.argmax(widths) + 1
         self.split_value = 0.5 * (self.high_bnd[self.split_col] + self.low_bnd[self.split_col])
         right_pointings = self.pointings[self.pointings[:, self.split_col] >= self.split_value]
@@ -332,11 +342,11 @@ class PointingTreeNode:
 
         # Create a right child.
         self.right_child = PointingTreeNode(right_pointings)
-        self.right_child.recursive_split_kd(max_points, min_width)
+        self.right_child.recursive_split_kd(max_points, min_width, angle_weight)
 
         # Create a left child.
         self.left_child = PointingTreeNode(left_pointings)
-        self.left_child.recursive_split_kd(max_points, min_width)
+        self.left_child.recursive_split_kd(max_points, min_width, angle_weight)
 
         return True
 
