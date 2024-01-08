@@ -29,10 +29,6 @@ class PointingTable:
     def __init__(self, pointings):
         self.pointings = pointings
 
-    def __len__(self):
-        """Return the length of the pointing table."""
-        return len(self.pointings)
-
     @classmethod
     def from_dict(cls, data):
         """Create the pointings data from a dictionary.
@@ -112,6 +108,10 @@ class PointingTable:
         result = PointingTable(ap_table)
         result.validate_and_standardize()
         return result
+
+    def __len__(self):
+        """Return the length of the pointing table."""
+        return len(self.pointings)
 
     @classmethod
     def from_fits(self, base_dir, file_pattern, extension=-1):
