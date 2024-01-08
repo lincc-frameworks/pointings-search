@@ -109,10 +109,6 @@ class PointingTable:
         result.validate_and_standardize()
         return result
 
-    def __len__(self):
-        """Return the length of the pointing table."""
-        return len(self.pointings)
-
     @classmethod
     def from_fits(self, base_dir, file_pattern, extension=-1):
         """Create a PointingTable from multiple of FITS files.
@@ -131,6 +127,24 @@ class PointingTable:
         """
         data_dict = pointing_dict_from_fits_files(base_dir, file_pattern, extension)
         return PointingTable.from_dict(data_dict)
+
+    def __len__(self):
+        """Return the length of the pointing table."""
+        return len(self.pointings)
+
+    def add_row(self, new_row):
+        """Append a new row to the end of the data. This is used for testing
+        purposes.
+
+        Parameters
+        ----------
+        new_row : `list` or `numpy.ndarray`
+            The new data to add. Must have the same number of columns and the same
+            ordering as the current table.
+        """
+        if len(new_row) != len(self.pointings.columns):
+            raise ValueError(f"Incorrect number of values: {len(new_row)} vs {len(self.pointings.columns)}")
+        self.pointings.add_row(new_row)
 
     def _check_and_rename_column(self, col_name, alt_names, required=True):
         """Check if the column is included using multiple possible names

@@ -369,16 +369,15 @@ class PointingTreeNode:
 
         theta = (self.view_radius + extra_fov) * (np.pi / 180.0)
         U_vect = target - (self.pos_radius / np.sin(theta)) * (-self.view_center)
-        UtoC = (self.pos_center - U_vect)
+        UtoC = self.pos_center - U_vect
         dist_along_ray = np.dot(-self.view_center, UtoC)
         if dist_along_ray < 0:
             return True
 
-        if dist_along_ray * dist_along_ray < np.dot(UtoC, UtoC) * (np.cos(theta)**2):
+        if dist_along_ray * dist_along_ray < np.dot(UtoC, UtoC) * (np.cos(theta) ** 2):
             return True
 
         return False
-
 
     def find_leaf_matches(self, target, extra_fov=0.0):
         """Return a list of points in a leaf node that match the search query.

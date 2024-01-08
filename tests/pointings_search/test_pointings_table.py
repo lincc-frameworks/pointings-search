@@ -86,6 +86,30 @@ def test_from_fits(test_data_dir):
     assert "layer" in data.pointings.columns
 
 
+def test_add_row():
+    data_dict = {
+        "ra": [0.0, 90.0, 45.0, 90.0, 270.0],
+        "dec": [0.0, 90.0, 0.0, 45.0, 0.0],
+        "obstime": [0.0, 1.0, 2.0, 3.0, 4.0],
+    }
+    data = PointingTable.from_dict(data_dict)
+    assert len(data.pointings) == 5
+    assert len(data.pointings.columns) == 3
+
+    data.add_row([12.0, 45.0, 5.0])
+    assert len(data.pointings) == 6
+    assert len(data.pointings.columns) == 3
+    assert data.pointings["ra"][5] == 12.0
+    assert data.pointings["dec"][5] == 45.0
+    assert data.pointings["obstime"][5] == 5.0
+
+    # Wrong number of columns.
+    with pytest.raises(Exception):
+        data.add_row([10.0, 45.0])
+    with pytest.raises(Exception):
+        data.add_row([10.0, 45.0, 5.0, 1.0])
+
+
 def test_to_csv():
     """Confirm that we can save and reload the basic data."""
     data_dict = {
