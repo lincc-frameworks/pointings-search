@@ -29,6 +29,12 @@ class PointingTable:
     def __init__(self, pointings):
         self.pointings = pointings
 
+    def copy(self):
+        """Make a copy and return it."""
+        new_pointings = self.pointings.copy()
+        new_table = PointingTable(new_pointings)
+        return new_table
+
     @classmethod
     def from_dict(cls, data):
         """Create the pointings data from a dictionary.
@@ -145,6 +151,18 @@ class PointingTable:
         if len(new_row) != len(self.pointings.columns):
             raise ValueError(f"Incorrect number of values: {len(new_row)} vs {len(self.pointings.columns)}")
         self.pointings.add_row(new_row)
+
+    def clear_rows(self, rows_to_remove=None):
+        """Remove rows from the data, leaving the column information.
+
+        Parameters
+        ----------
+        rows_to_remove : `list` or `numpy.ndarray` (optional)
+            A list of the rows to remove. If None, remove all the rows.
+        """
+        if rows_to_remove is None:
+            rows_to_remove = [i for i in range(len(self.pointings))]
+        self.pointings.remove_rows(rows_to_remove)
 
     def _check_and_rename_column(self, col_name, alt_names, required=True):
         """Check if the column is included using multiple possible names
