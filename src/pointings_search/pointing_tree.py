@@ -3,10 +3,10 @@ pointing data. Uses a hybrid approach between a kd-tree (for splitting)
 and a ball tree (for bounds and pruning)."""
 
 import math
-import numpy as np
 
-from astropy.coordinates import CartesianRepresentation, SkyCoord
+import numpy as np
 from astropy import units as u
+from astropy.coordinates import CartesianRepresentation, SkyCoord
 
 from pointings_search.pointing_table import PointingTable
 
